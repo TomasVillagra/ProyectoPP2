@@ -1,0 +1,21 @@
+.main-layout {
+  display: flex;
+  height: 100vh; /* Altura fija al 100% de la ventana */
+}
+
+.main-content {
+  flex-grow: 1; /* Ocupa el resto del espacio horizontal */
+  padding: 24px;
+  
+  /* ====================================================================== */
+  /* ¡LÍNEA CLAVE! Esto asegura que el scroll aparezca si el contenido es muy alto */
+  overflow-y: auto;
+  /* ====================================================================== */
+  
+  /* Fondo oscuro con imagen. Lo movemos aquí para que no afecte a la sidebar. */
+  background: linear-gradient(rgba(28, 28, 30, 0.9), rgba(28, 28, 30, 0.9)),
+  url('../assets/pizza-background.jpg');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}

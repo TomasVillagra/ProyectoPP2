@@ -1,0 +1,56 @@
+
+# ---- Python / Django ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.log
+local_settings.py
+db.sqlite3
+media/
+staticfiles/
+# Virtual envs
+env/
+ENV/
+.venv/
+venv/
+# Migrations cache (keep migration files, ignore pyc)
+**/migrations/**/__pycache__/
+
+# ---- Node / React / Next / Expo ----
+node_modules/
+.npmrc
+.parcel-cache/
+dist/
+build/
+.next/
+.next/
+out/
+.expo/
+.expo-shared/
+# React Native / Android / iOS build artifacts
+android/
+ios/
+# Keep lockfiles (uncomment to ignore if you don't commit them)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# ---- Tooling / Editors ----
+.vscode/
+.idea/
+*.code-workspace
+
+# ---- OS junk ----
+.DS_Store
+Thumbs.db
+
+# ---- Coverage / Reports ----
+.coverage
+htmlcov/
+coverage.xml
+
+# ---- Misc ----
+*.orig

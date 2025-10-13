@@ -1,0 +1,17 @@
+.employees-list-page { display: flex; flex-direction: column; gap: 24px; }
+.employees-header h1 { margin: 0; font-size: 2rem; color: #f8f8f8; font-weight: 700; }
+.employees-container { background-color: #2c2c2e; color: #e0e0e0; border-radius: 12px; padding: 32px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); border: 1px solid #444; }
+.employees-actions-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.add-new-btn-light-blue { background-color: #007bff; color: #fff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.employees-table { width: 100%; border-collapse: collapse; }
+.employees-table th, .employees-table td { padding: 14px; text-align: left; border-bottom: 1px solid #444; color: #d1d1d1; font-weight: 500; }
+.employees-table th { color: #a0a0a0; text-transform: uppercase; }
+.employees-table td[colSpan="6"] { text-align: center; }
+.employee-status-badge { padding: 5px 12px; border-radius: 12px; font-weight: 600; font-size: 0.8rem; }
+.employee-status-badge.status-activo { background-color: #17a2b8; color: #fff; }
+.employee-status-badge.status-inactivo { background-color: #dc3545; color: #fff; }
+.action-buttons { display: flex; gap: 8px; }
+.btn-action { padding: 8px 10px; border: none; border-radius: 6px; color: #fff; cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; transition: opacity 0.2s ease; }
+.btn-view-details { background-color: #6c757d; }
+.btn-edit-details { background-color: #17a2b8; }
+.btn-credentials { background-color: #fd7e14; }

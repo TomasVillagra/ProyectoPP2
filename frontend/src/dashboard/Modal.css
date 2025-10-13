@@ -1,0 +1,64 @@
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6); /* Fondo oscuro semi-transparente */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000; /* Asegura que esté por encima de todo */
+}
+
+.modal-content {
+  background-color: #fff;
+  padding: 24px 32px;
+  border-radius: 12px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+  animation: slide-down 0.3s ease-out;
+}
+
+@keyframes slide-down {
+  from {
+    transform: translateY(-30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+
+.modal-content h4 {
+  margin: 0 0 16px 0;
+  font-size: 1.5rem;
+  color: #343a40;
+}
+
+.modal-body {
+  margin-bottom: 24px;
+  font-size: 1.1rem;
+  color: #495057;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+/* Reutilizamos las clases 'btn' pero con nombres más específicos para evitar conflictos */
+.btn-accept {
+  background-color: #28a745;
+  color: #fff;
+}
+
+.btn-cancel-modal {
+  background-color: #dc3545;
+  color: #fff;
+}

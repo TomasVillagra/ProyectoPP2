@@ -1,0 +1,40 @@
+.sales-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.sales-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sales-header h1 {
+  margin: 0;
+  font-size: 2rem;
+  /* CAMBIO: Color blanco para el título */
+  color: #f8f8f8; 
+  font-weight: 700;
+}
+
+.sales-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ====================================================================== */
+/* ¡CAMBIO CLAVE! Estilo oscuro para el mensaje de "No hay ventas" */
+.no-sales-message {
+  background-color: #2c2c2e; /* Fondo gris oscuro */
+  color: #a0a0a0; /* Texto gris claro */
+  border-radius: 12px;
+  padding: 40px;
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 500;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  border: 1px solid #444;
+}
+/* ====================================================================== */

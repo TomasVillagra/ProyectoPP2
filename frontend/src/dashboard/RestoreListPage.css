@@ -1,0 +1,10 @@
+.restore-list-page { display: flex; flex-direction: column; gap: 24px; }
+.restore-header { display: flex; align-items: center; gap: 16px; }
+.restore-header h1 { color: #343a40; font-size: 2rem; margin: 0; }
+.restore-container { background: #fff; padding: 32px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.restore-table { width: 100%; border-collapse: collapse; }
+.restore-table thead { background-color: #e9ecef; }
+.restore-table th, .restore-table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #dee2e6; color: #495057; }
+.restore-table th { font-weight: 600; }
+.restore-table td input[type="radio"] { width: 18px; height: 18px; }
+.form-actions { display: flex; justify-content: center; gap: 24px; margin-top: 32px; }
