@@ -80,12 +80,14 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "rest_framework.authentication.SessionAuthentication",           # 👈 NUEVO (para admin/login)
+        "rest_framework_simplejwt.authentication.JWTAuthentication",     # 👈 mantiene JWT
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
 }
+
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 

@@ -38,4 +38,3 @@ def me(request):
     if request.user.is_authenticated:
         return JsonResponse({'is_authenticated': True, 'username': request.user.username})
     return JsonResponse({'is_authenticated': False})
-

@@ -97,3 +97,36 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, -apple
   .nav { justify-content: center; flex-wrap: wrap; }
   .user { justify-content: center; }
 }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background-color: #111; /* 🔥 mismo color que el dashboard */
+  color: #fff;
+  font-family: "Inter", "Segoe UI", sans-serif;
+}
+
+main, .container, .card, .table {
+  background-color: #111 !important; /* fondo negro uniforme */
+  color: #fff !important;
+}
+
+button {
+  background-color: #222;
+  color: #fff;
+  border: 1px solid #333;
+}
+
+button:hover {
+  background-color: #333;
+}
+
+input, select {
+  background-color: #1b1b1b;
+  color: #fff;
+  border: 1px solid #333;
+}
+
+input::placeholder, select option {
+  color: #bbb;
+}
