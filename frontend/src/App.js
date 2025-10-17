@@ -11,6 +11,7 @@ import CajaPage from "./pages/CajaPage";
 import InventarioList from "./pages/inventario/InventarioList";
 import InsumoRegistrar from "./pages/inventario/InsumoRegistrar";
 import InsumoEditar from "./pages/inventario/InsumoEditar";
+import InventarioInactivosList from "./pages/inventario/InventarioInactivosList";
 
 // Empleados (rutas nuevas separadas)
 import EmpleadosList from "./pages/empleados/EmpleadosList";
@@ -19,6 +20,7 @@ import EmpleadoEditar from "./pages/empleados/EmpleadoEditar";
 import ProveedoresList from "./pages/proveedores/ProveedoresList";
 import ProveedorRegistrar from "./pages/proveedores/ProveedorRegistrar";
 import ProveedorEditar from "./pages/proveedores/ProveedorEditar";
+import ProveedoresInactivosList from "./pages/proveedores/ProveedoresInactivosList";
 
 export default function App() {
   return (
@@ -37,7 +39,7 @@ export default function App() {
         <Route path="/inventario" element={<ProtectedRoute><InventarioList /></ProtectedRoute>} />
         <Route path="/inventario/registrar" element={<ProtectedRoute><InsumoRegistrar /></ProtectedRoute>} />
         <Route path="/inventario/editar/:id" element={<ProtectedRoute><InsumoEditar /></ProtectedRoute>} />
-
+        <Route path="/inventario/inactivos" element={<InventarioInactivosList />} />
         {/* Empleados */}
         <Route path="/empleados" element={<ProtectedRoute><EmpleadosList /></ProtectedRoute>} />
         <Route path="/empleados/registrar" element={<ProtectedRoute><EmpleadoRegistrar /></ProtectedRoute>} />
@@ -50,6 +52,7 @@ export default function App() {
         <Route path="/proveedores" element={<ProveedoresList />} />
         <Route path="/proveedores/registrar" element={<ProveedorRegistrar />} />
         <Route path="/proveedores/editar/:id" element={<ProveedorEditar />} />
+        <Route path="/proveedores/inactivos" element={<ProveedoresInactivosList />} />
       </Routes>
     </BrowserRouter>
   );

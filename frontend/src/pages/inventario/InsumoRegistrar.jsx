@@ -3,30 +3,89 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 
-const ESTADOS = [
-  { id: 1, label: "Activo" },
-  { id: 2, label: "Inactivo" },
-];
+const ESTADOS = [ { id: 1, label: "Activo" }, { id: 2, label: "Inactivo" } ];
+const UNIDADES = ["u", "kg", "g", "l", "ml"];
 
 export default function InsumoRegistrar() {
   const navigate = useNavigate();
   const [msg, setMsg] = useState("");
-
   const [form, setForm] = useState({
     ins_nombre: "",
-    ins_unidad: "",
+    ins_unidad: "kg", // default pedido
     ins_stock_actual: "",
     ins_punto_reposicion: "",
     ins_stock_min: "",
     ins_stock_max: "",
     id_estado_insumo: "1",
   });
+  const [errors, setErrors] = useState({});
 
-  const onChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+  const num = (v) => (v === "" || v === null || v === undefined ? null : Number(v));
+
+  const validate = (values) => {
+    const e = {};
+    const nombre = (values.ins_nombre || "").trim();
+    const unidad = (values.ins_unidad || "").trim();
+
+    const stockActual = num(values.ins_stock_actual);
+    const puntoRepo   = num(values.ins_punto_reposicion);
+    const stockMin    = num(values.ins_stock_min);
+    const stockMax    = num(values.ins_stock_max);
+
+    if (!nombre) e.ins_nombre = "El nombre es obligatorio.";
+
+    if (!unidad) {
+      e.ins_unidad = "La unidad es obligatoria.";
+    } else if (!UNIDADES.includes(unidad)) {
+      e.ins_unidad = "Elegí una unidad válida (u, kg, g, l, ml).";
+    }
+
+    if (stockActual === null) e.ins_stock_actual = "El stock actual es obligatorio.";
+    else if (isNaN(stockActual) || stockActual < 0) e.ins_stock_actual = "No puede ser negativo.";
+
+    if (puntoRepo === null) e.ins_punto_reposicion = "El punto de reposición es obligatorio.";
+    else if (isNaN(puntoRepo) || puntoRepo < 0) e.ins_punto_reposicion = "No puede ser negativo.";
+
+    if (stockMin === null) e.ins_stock_min = "El stock mínimo es obligatorio.";
+    else if (isNaN(stockMin) || stockMin < 0) e.ins_stock_min = "No puede ser negativo.";
+
+    if (values.ins_stock_max !== "" && values.ins_stock_max !== null) {
+      if (stockMax === null || isNaN(stockMax)) e.ins_stock_max = "Debe ser un número.";
+      else if (stockMax < 0) e.ins_stock_max = "No puede ser negativo.";
+      else if (stockMin !== null && !e.ins_stock_min && stockMin > stockMax)
+        e.ins_stock_min = "El mínimo no puede superar al máximo.";
+    }
+
+    // Punto de reposición entre min y max (si max existe)
+    if (puntoRepo !== null && !isNaN(puntoRepo)) {
+      if (stockMin !== null && !isNaN(stockMin) && puntoRepo < stockMin) {
+        e.ins_punto_reposicion = "Debe ser ≥ al stock mínimo.";
+      }
+      if (values.ins_stock_max !== "" && stockMax !== null && !isNaN(stockMax) && puntoRepo > stockMax) {
+        e.ins_punto_reposicion = "Debe ser ≤ al stock máximo.";
+      }
+    }
+
+    return e;
+  };
+
+  const onChange = (e) => {
+    const { name, value } = e.target;
+    setForm((f) => ({ ...f, [name]: value }));
+  };
+
+  const onBlur = () => {
+    const nextErrors = validate(form);
+    setErrors(nextErrors);
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setMsg("");
+    const nextErrors = validate(form);
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
     try {
       await api.post("/api/insumos/", {
         ...form,
@@ -34,7 +93,7 @@ export default function InsumoRegistrar() {
         ins_stock_actual: form.ins_stock_actual ? Number(form.ins_stock_actual) : 0,
         ins_punto_reposicion: form.ins_punto_reposicion ? Number(form.ins_punto_reposicion) : 0,
         ins_stock_min: form.ins_stock_min ? Number(form.ins_stock_min) : 0,
-        ins_stock_max: form.ins_stock_max ? Number(form.ins_stock_max) : null,
+        ins_stock_max: form.ins_stock_max === "" ? null : Number(form.ins_stock_max),
       });
       setMsg("Insumo creado correctamente ✅");
       setTimeout(() => navigate("/inventario"), 1200);
@@ -46,72 +105,168 @@ export default function InsumoRegistrar() {
 
   return (
     <DashboardLayout>
-      <h2 style={{ margin: 0, marginBottom: 12 }}>Registrar Insumo</h2>
-      {msg && <p style={{ marginBottom: 12 }}>{msg}</p>}
+      <div className="form-container">
+        <h2 className="form-title">Registrar Nuevo Insumo</h2>
+        {msg && <p className="form-message">{msg}</p>}
 
-      <form onSubmit={onSubmit} className="form">
-        <div className="row">
-          <label htmlFor="ins_nombre">Nombre =</label>
-          <input id="ins_nombre" name="ins_nombre" value={form.ins_nombre} onChange={onChange} required placeholder="Ej. Harina 000" />
-        </div>
-        <div className="row">
-          <label htmlFor="ins_unidad">Unidad =</label>
-          <input id="ins_unidad" name="ins_unidad" value={form.ins_unidad} onChange={onChange} required placeholder="kg, lt, un…" />
-        </div>
-        <div className="row">
-          <label htmlFor="ins_stock_actual">Stock actual =</label>
-          <input id="ins_stock_actual" name="ins_stock_actual" type="number" step="0.01" value={form.ins_stock_actual} onChange={onChange} required />
-        </div>
-        <div className="row">
-          <label htmlFor="ins_punto_reposicion">Punto de reposición =</label>
-          <input id="ins_punto_reposicion" name="ins_punto_reposicion" type="number" step="0.01" value={form.ins_punto_reposicion} onChange={onChange} required />
-        </div>
-        <div className="row">
-          <label htmlFor="ins_stock_min">Stock mínimo =</label>
-          <input id="ins_stock_min" name="ins_stock_min" type="number" step="0.01" value={form.ins_stock_min} onChange={onChange} required />
-        </div>
-        <div className="row">
-          <label htmlFor="ins_stock_max">Stock máximo =</label>
-          <input id="ins_stock_max" name="ins_stock_max" type="number" step="0.01" value={form.ins_stock_max} onChange={onChange} placeholder="" />
-        </div>
-        <div className="row">
-          <label htmlFor="id_estado_insumo">Estado =</label>
-          <select id="id_estado_insumo" name="id_estado_insumo" value={form.id_estado_insumo} onChange={onChange} required>
-            {ESTADOS.map((e) => (
-              <option key={e.id} value={e.id}>{e.label}</option>
-            ))}
-          </select>
-        </div>
+        <form onSubmit={onSubmit} className="form">
+          <div className="form-group">
+            <label htmlFor="ins_nombre">Nombre</label>
+            <input
+              id="ins_nombre" name="ins_nombre"
+              value={form.ins_nombre} onChange={onChange} onBlur={onBlur}
+              required placeholder="Ej. Harina 000"
+            />
+            {errors.ins_nombre && <small className="field-error">{errors.ins_nombre}</small>}
+          </div>
 
-        <div className="actions">
-          <button type="submit" className="btn primary">Registrar insumo</button>
-          <button type="button" className="btn ghost" onClick={() => navigate("/inventario")}>Cancelar</button>
-        </div>
-      </form>
+          <div className="form-group">
+            <label htmlFor="ins_unidad">Unidad</label>
+            <select
+              id="ins_unidad"
+              name="ins_unidad"
+              value={form.ins_unidad}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+            >
+              <option value="">-- Seleccioná --</option>
+              {UNIDADES.map(u => (
+                <option key={u} value={u}>{u}</option>
+              ))}
+            </select>
+            {errors.ins_unidad && <small className="field-error">{errors.ins_unidad}</small>}
+          </div>
 
-      <style>{styles}</style>
+          <div className="form-group">
+            <label htmlFor="ins_stock_actual">Stock actual</label>
+            <input
+              id="ins_stock_actual" name="ins_stock_actual" type="number" step="0.01" min="0"
+              value={form.ins_stock_actual} onChange={onChange} onBlur={onBlur} required
+            />
+            {errors.ins_stock_actual && <small className="field-error">{errors.ins_stock_actual}</small>}
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="ins_punto_reposicion">Punto de reposición</label>
+            <input
+              id="ins_punto_reposicion" name="ins_punto_reposicion" type="number" step="0.01" min="0"
+              value={form.ins_punto_reposicion} onChange={onChange} onBlur={onBlur} required
+            />
+            {errors.ins_punto_reposicion && <small className="field-error">{errors.ins_punto_reposicion}</small>}
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="ins_stock_min">Stock mínimo</label>
+            <input
+              id="ins_stock_min" name="ins_stock_min" type="number" step="0.01" min="0"
+              value={form.ins_stock_min} onChange={onChange} onBlur={onBlur} required
+            />
+            {errors.ins_stock_min && <small className="field-error">{errors.ins_stock_min}</small>}
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="ins_stock_max">Stock máximo (Opcional)</label>
+            <input
+              id="ins_stock_max" name="ins_stock_max" type="number" step="0.01" min="0"
+              value={form.ins_stock_max} onChange={onChange} onBlur={onBlur}
+            />
+            {errors.ins_stock_max && <small className="field-error">{errors.ins_stock_max}</small>}
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="id_estado_insumo">Estado</label>
+            <select id="id_estado_insumo" name="id_estado_insumo" value={form.id_estado_insumo} onChange={onChange} onBlur={onBlur} required>
+              {ESTADOS.map((e) => (<option key={e.id} value={e.id}>{e.label}</option>))}
+            </select>
+          </div>
+
+          <div className="form-actions">
+            <button type="submit" className="btn btn-primary">Registrar insumo</button>
+            <button type="button" className="btn btn-secondary" onClick={() => navigate("/inventario")}>Cancelar</button>
+          </div>
+        </form>
+      </div>
+
+      <style>{formStyles}</style>
+      <style>{`.field-error{color:#fca5a5;font-size:.85rem}`}</style>
     </DashboardLayout>
   );
 }
 
-const styles = `
-  .form { display: grid; gap: 12px; max-width: 980px; }
-  .row {
-    display: grid; grid-template-columns: 220px 1fr;
-    gap: 12px; align-items: center;
-    background: #121212; border: 1px solid #232323;
-    border-radius: 12px; padding: 12px 14px;
+const formStyles = `
+  .form-container {
+    background-color: #2c2c2e;
+    border: 1px solid #3a3a3c;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 800px;
+    margin: 0 auto;
   }
-  label { color: #bdbdbd; font-weight: 600; letter-spacing: .2px; justify-self: end; }
-  input, select {
-    width: 100%; background: #0f0f0f; color: #fff;
-    border: 1px solid #2a2a2a; border-radius: 10px; padding: 10px 12px; outline: none;
+  .form-title {
+    margin: 0 0 24px 0;
+    font-size: 1.5rem;
   }
-  input:focus, select:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.2); }
-  .actions { display: flex; gap: 10px; margin-top: 6px; }
-  .btn { padding: 10px 14px; border-radius: 10px; border: 1px solid #2a2a2a; cursor: pointer; }
-  .btn.primary { background: #2563eb; border-color: #2563eb; color: #fff; font-weight: 700; }
-  .btn.primary:hover { filter: brightness(1.05); }
-  .btn.ghost { background: transparent; color: #eaeaea; }
-  .btn.ghost:hover { background: #1b1b1b; }
+  .form-message {
+    margin: 0 0 16px 0;
+    color: #facc15;
+  }
+  .form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+  }
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .form-group label {
+    font-weight: 600;
+    color: #d1d5db;
+  }
+  .form-group input, .form-group select {
+    background-color: #3a3a3c;
+    color: #fff;
+    border: 1px solid #4a4a4e;
+    border-radius: 8px;
+    padding: 10px 12px;
+    outline: none;
+    transition: border-color 0.2s ease;
+  }
+  .form-group input:focus, .form-group select:focus {
+    border-color: #facc15;
+  }
+  .form-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background-color 0.2s ease;
+  }
+  .btn-primary {
+    background-color: #facc15;
+    color: #111827;
+  }
+  .btn-primary:hover {
+    background-color: #eab308;
+  }
+  .btn-secondary {
+    background-color: #3a3a3c;
+    color: #eaeaea;
+  }
+  .btn-secondary:hover {
+    background-color: #4a4a4e;
+  }
 `;

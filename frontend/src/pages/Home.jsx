@@ -1,21 +1,55 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/axios";
 import ConfirmDialog from "../components/ConfirmDialog";
 import DashboardLayout from "../components/layout/DashboardLayout";
+import { FaClock, FaDollarSign, FaExclamationTriangle, FaStore } from 'react-icons/fa';
+
+/* ============================
+   Utilidades para críticos
+   ============================ */
+// "18.000" -> 18 ; "12,5" -> 12.5
+const toNum = (v) => {
+  if (v === null || v === undefined || v === "") return NaN;
+  if (typeof v === "number") return v;
+  const n = parseFloat(String(v).trim().replace(",", "."));
+  return Number.isNaN(n) ? NaN : n;
+};
+
+const isActive = (val) => {
+  if (val === null || val === undefined || val === "") return true;
+  return Number(val) === 1;
+};
+
+const esCritico = (item) => {
+  if (!isActive(item?.id_estado_insumo)) return false; // Solo activos
+  const actual = toNum(item?.ins_stock_actual);
+  const repo   = toNum(item?.ins_punto_reposicion);
+  return !Number.isNaN(actual) && !Number.isNaN(repo) && actual < repo;
+};
+
+// 🔹 Estrategia simple: pedir muchos en una sola página
+async function fetchAllInsumos(apiInstance) {
+  const url = "/api/insumos/?page_size=1000&format=json";
+  const res = await apiInstance.get(url);
+  const data = res.data;
+  const items = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
+  return items;
+}
 
 export default function Home() {
   const [me, setMe] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [stats, setStats] = useState({ ventas_hoy: 5000, pedidos: 4, stock_bajo: 6 });
+  const [stats, setStats] = useState({ ventas_hoy: 0, pedidos: 0, stock_bajo: 0 });
 
   useEffect(() => {
     (async () => {
+      // ─────────────────────────────────────────────────────────
+      // 1) Usuario actual (igual que antes)
+      // ─────────────────────────────────────────────────────────
       try {
-        // Usuario autenticado
         const meRes = await api.get("/api/auth/me/");
         let userData = meRes.data;
-
-        // Cargo (match username vs emp_nombre)
         try {
           const empRes = await api.get(`/api/empleados/?username=${userData.username}`);
           const list = Array.isArray(empRes.data?.results)
@@ -27,19 +61,36 @@ export default function Home() {
             (e) => e.emp_nombre?.toLowerCase() === userData.username?.toLowerCase()
           );
           if (match) userData = { ...userData, cargo_nombre: match.cargo_nombre };
-        } catch {
-          // no-op
-        }
+        } catch {}
         setMe(userData);
-      } catch {
-        // no-op
-      }
+      } catch {}
 
+      // ─────────────────────────────────────────────────────────
+      // 2) Summary (si 404, no frena nada)
+      // ─────────────────────────────────────────────────────────
       try {
         const s = await api.get("/api/dashboard/summary/");
-        setStats(s.data);
-      } catch {
-        // no-op
+        const srv = s.data || {};
+        setStats((prev) => ({
+          ventas_hoy: toNum(srv.ventas_hoy) || prev.ventas_hoy || 0,
+          pedidos: toNum(srv.pedidos) || prev.pedidos || 0,
+          stock_bajo: toNum(srv.stock_bajo) || prev.stock_bajo || 0,
+        }));
+      } catch (e) {
+        // 404 u otro error: seguimos sin romper el flujo
+        // console.warn("Summary no disponible:", e?.response?.status);
+      }
+
+      // ─────────────────────────────────────────────────────────
+      // 3) Cálculo REAL de insumos críticos (siempre corre)
+      // ─────────────────────────────────────────────────────────
+      try {
+        const insumos = await fetchAllInsumos(api);
+        const criticosReales = insumos.filter(esCritico).length;
+        setStats((prev) => ({ ...prev, stock_bajo: criticosReales }));
+      } catch (e) {
+        // Si falla, nos quedamos con lo que haya en stats (quizás del summary)
+        // console.warn("Error calculando críticos:", e);
       }
     })();
   }, []);
@@ -55,7 +106,6 @@ export default function Home() {
     <DashboardLayout
       topRight={
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-          {/* Rol del usuario */}
           {me?.cargo_nombre && (
             <span style={{ fontSize: 13, color: "#bcbcbc", marginBottom: 4 }}>
               Rol: <strong style={{ color: "#fff" }}>{me.cargo_nombre}</strong>
@@ -63,71 +113,37 @@ export default function Home() {
           )}
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ color: "#eaeaea" }}>Bienvenido, {me?.username || "usuario"}</span>
-            <button
-              onClick={() => setShowConfirm(true)}
-              style={btnOutline}
-            >
+            <button onClick={() => setShowConfirm(true)} style={btnOutline}>
               Cerrar sesión
             </button>
           </div>
         </div>
       }
     >
-      <main className="container">
-        {/* Encabezado de página */}
-        <div className="page-head">
-          <h1>Panel general</h1>
-          <p>Resumen de actividad y estado del sistema</p>
-        </div>
-
-        {/* KPIs */}
-        <section className="metrics">
-          <MetricCard
-            title="Ventas de hoy"
-            value={
-              typeof stats.ventas_hoy === "number"
-                ? `$ ${stats.ventas_hoy.toLocaleString("es-AR")}`
-                : stats.ventas_hoy
-            }
-            icon={
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path d="M3 3v18h18" stroke="currentColor" strokeWidth="1.6"/>
-                <path d="M7 15l4-4 3 3 5-6" stroke="currentColor" strokeWidth="1.6"/>
-              </svg>
-            }
+      <div className="dashboard-page-dark">
+        <section className="stat-cards-container">
+          <StatCard icon={<FaClock />} value={stats.pedidos} title="Pedidos pendientes" />
+          <StatCard
+            icon={<FaDollarSign />}
+            value={`$ ${toNum(stats.ventas_hoy).toLocaleString("es-AR")}`}
+            title="Ventas del día"
           />
-          <MetricCard
-            title="Pedidos"
-            value={stats.pedidos}
-            icon={
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path d="M4 6h16v12H4z" stroke="currentColor" strokeWidth="1.6"/>
-                <path d="M8 6V4h8v2" stroke="currentColor" strokeWidth="1.6"/>
-              </svg>
-            }
-          />
-          <MetricCard
-            title="Insumos bajo mínimo"
-            value={stats.stock_bajo}
-            accent="warning"
-            icon={
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path d="M12 2l9 18H3L12 2z" stroke="currentColor" strokeWidth="1.6"/>
-                <path d="M12 9v5M12 18h.01" stroke="currentColor" strokeWidth="1.6"/>
-              </svg>
-            }
-          />
+          {/* Clic a /inventario, sin filtros */}
+          <Link to="/inventario" className="stat-link">
+            <StatCard
+              icon={<FaExclamationTriangle />}
+              value={stats.stock_bajo}
+              title="Insumos críticos"
+            />
+          </Link>
+          <StatCard icon={<FaStore />} value={"Cerrada"} title="Estado de caja" />
         </section>
 
-        {/* Últimos pedidos */}
-        <section className="card block">
-          <div className="block-head">
-            <h2>Últimos pedidos</h2>
-            <span className="hint">Actualiza para ver cambios recientes</span>
-          </div>
-          <div className="placeholder" />
+        <section className="dashboard-main-content">
+          <SalesSummary />
+          <WeeklySalesChart />
         </section>
-      </main>
+      </div>
 
       <ConfirmDialog
         open={showConfirm}
@@ -142,21 +158,46 @@ export default function Home() {
   );
 }
 
-/* --------- Componentes UI internos (solo presentación) --------- */
+const StatCard = ({ icon, value, title }) => (
+  <div className="widget-card stat-card">
+    <div className="stat-icon">{icon}</div>
+    <div className="stat-value">{value}</div>
+    <div className="stat-title">{title}</div>
+  </div>
+);
 
-function MetricCard({ title, value, icon, accent }) {
-  return (
-    <div className={`card metric ${accent || ""}`}>
-      <div className="metric-top">
-        <div className="metric-icon">{icon}</div>
-        <div className="metric-title">{title}</div>
-      </div>
-      <div className="metric-value">{value ?? "-"}</div>
+const SalesSummary = () => (
+  <div className="widget-card">
+    <h3 className="widget-title">Resumen de ventas hoy</h3>
+    <div className="summary-total">
+      <span className="summary-amount">$0</span>
+      <span className="summary-subtitle">Total del día</span>
     </div>
-  );
-}
+    <ul className="summary-legend">
+      <li>
+        <span className="legend-dot" style={{ backgroundColor: "#28a745" }}></span>
+        Efectivo<span className="legend-value">$0</span>
+      </li>
+      <li>
+        <span className="legend-dot" style={{ backgroundColor: "#ffc107" }}></span>
+        Tarjeta<span className="legend-value">$0</span>
+      </li>
+      <li>
+        <span className="legend-dot" style={{ backgroundColor: "#007bff" }}></span>
+        QR<span className="legend-value">$0</span>
+      </li>
+    </ul>
+  </div>
+);
 
-/* --------- Estilos --------- */
+const WeeklySalesChart = () => (
+  <div className="widget-card">
+    <h3 className="widget-title">Ventas semanales</h3>
+    <div className="chart-placeholder">
+      <p style={{ color: "#a0a0a0", textAlign: "center" }}>Gráfico de ventas no disponible</p>
+    </div>
+  </div>
+);
 
 const btnOutline = {
   background: "transparent",
@@ -168,123 +209,27 @@ const btnOutline = {
 };
 
 const styles = `
-  :root {
-    --bg: #0e0e0e;
-    --panel: #141414;
-    --panel-2: #161616;
-    --line: #232323;
-    --muted: #bcbcbc;
-    --muted-2: #9a9a9a;
-    --text: #ffffff;
-    --accent: #eaeaea;
-    --blue: #2563eb;
-    --green: #34d399;
-    --yellow: #f59e0b;
-  }
+  .dashboard-page-dark { display: flex; flex-direction: column; gap: 24px; }
+  .stat-cards-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+  .widget-card { background-color: #2c2c2e; padding: 24px; border-radius: 12px; border: 1px solid #3a3a3c; transition: border-color .15s ease, transform .15s ease; }
+  .stat-card { display: flex; flex-direction: column; align-items: flex-start; }
+  .stat-icon { font-size: 1.5rem; color: #a0a0a0; margin-bottom: 12px; }
+  .stat-value { font-size: 2rem; font-weight: 700; margin-bottom: 4px; color: #fff; }
+  .stat-title { font-size: 1rem; color: #a0a0a0; }
+  .dashboard-main-content { display: grid; grid-template-columns: 1fr 2fr; gap: 24px; align-items: flex-start; }
+  .widget-title { margin: 0 0 24px 0; font-size: 1.2rem; font-weight: 600; color: #a0a0a0; }
+  .summary-total { text-align: center; margin-bottom: 24px; }
+  .summary-amount { font-size: 2.5rem; font-weight: 700; color: #28a745; }
+  .summary-subtitle { display: block; color: #a0a0a0; }
+  .summary-legend { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 16px; }
+  .summary-legend li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .legend-value { font-weight: 600; color: #fff; }
+  .chart-placeholder { height: 300px; display: flex; align-items: center; justify-content: center; }
 
-  .container {
-    width: 100%;
-    max-width: 1440px;
-    margin: 0 auto;
-    padding: 28px 28px 48px;
-  }
+  .stat-link { text-decoration: none; color: inherit; }
+  .stat-link .widget-card:hover { border-color: #facc15; transform: translateY(-1px); }
 
-  .page-head {
-    margin-bottom: 18px;
-  }
-  .page-head h1 {
-    margin: 0 0 4px;
-    color: var(--text);
-    font-size: 24px;
-    font-weight: 800;
-    letter-spacing: .2px;
-  }
-  .page-head p {
-    margin: 0;
-    color: var(--muted);
-    font-size: 14px;
-  }
-
-  .metrics {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(260px, 1fr));
-    gap: 18px;
-    margin-bottom: 22px;
-  }
-
-  .card {
-    background: var(--panel-2);
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 16px;
-    padding: 16px;
-    transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
-  }
-  .card:hover {
-    transform: translateY(-2px);
-    border-color: rgba(255,255,255,.14);
-    box-shadow: 0 8px 24px rgba(0,0,0,.35);
-  }
-
-  .metric .metric-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 6px;
-  }
-  .metric .metric-icon {
-    width: 38px; height: 38px;
-    display: grid; place-items: center;
-    border-radius: 12px;
-    background: #0f0f0f;
-    border: 1px solid var(--line);
-    color: #e5e5e5;
-  }
-  .metric .metric-title {
-    margin-left: auto;
-    color: var(--muted);
-    font-weight: 600;
-    font-size: 13px;
-  }
-  .metric .metric-value {
-    font-size: 30px;
-    font-weight: 900;
-    color: var(--text);
-    letter-spacing: .3px;
-  }
-  .metric.warning .metric-icon {
-    color: var(--yellow);
-    border-color: rgba(245,158,11,.45);
-  }
-
-  .block {
-    padding: 0;
-    overflow: hidden;
-  }
-  .block-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--line);
-    background: linear-gradient(180deg, #121212, #101010);
-  }
-  .block-head h2 {
-    margin: 0; color: var(--text); font-size: 18px; font-weight: 800;
-  }
-  .block-head .hint {
-    color: var(--muted-2);
-    font-size: 12px;
-  }
-  .placeholder {
-    height: 240px;
-    background:
-      linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
-  }
-
-  /* Responsive */
-  @media (max-width: 980px) {
-    .metrics {
-      grid-template-columns: 1fr;
-    }
-  }
+  @media (max-width: 980px) { .dashboard-main-content { grid-template-columns: 1fr; } }
 `;
+

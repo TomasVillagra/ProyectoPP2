@@ -43,10 +43,17 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, -apple
 }
 .login-form input:focus { border-color: var(--brand); }
 .error { margin-top: 10px; color: #ffb4b4; font-size: 14px; }
+
 .btn {
   cursor: pointer; border: 1px solid transparent; border-radius: 10px; padding: 10px 14px; font-weight: 600;
 }
-.btn-primary { width: 100%; margin-top: 14px; background: var(--brand); color: #0b0d10; }
+
+/* 🔥 CORRECCIÓN DEFINITIVA: Se eliminaron las reglas de 'width' y 'margin' que causaban el problema */
+.btn-primary {
+  background: var(--brand);
+  color: #0b0d10;
+}
+
 .btn-outline { background: transparent; color: var(--text); border-color: var(--border); }
 .btn-secondary { background: var(--panel-2); color: var(--text); border-color: var(--border); }
 .btn-danger { background: var(--danger); color: white; }
@@ -98,16 +105,18 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, -apple
   .user { justify-content: center; }
 }
 
+/* Reglas finales que se pueden borrar si no se usan */
+/*
 html, body, #root {
   height: 100%;
   margin: 0;
-  background-color: #111; /* 🔥 mismo color que el dashboard */
+  background-color: #111;
   color: #fff;
   font-family: "Inter", "Segoe UI", sans-serif;
 }
 
 main, .container, .card, .table {
-  background-color: #111 !important; /* fondo negro uniforme */
+  background-color: #111 !important;
   color: #fff !important;
 }
 
@@ -130,3 +139,4 @@ input, select {
 input::placeholder, select option {
   color: #bbb;
 }
+*/

@@ -1,20 +1,17 @@
 import React from 'react';
 
-export default function ConfirmDialog({ open, title, message, onConfirm, onCancel }) {
+export default function AlertDialog({ open, title, message, onClose }) {
   if (!open) {
     return null;
   }
 
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
+    <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
         <h3 className="modal-title">{title}</h3>
         <p className="modal-message">{message}</p>
         <div className="modal-actions">
-          <button onClick={onCancel} className="btn btn-secondary">
-            Cancelar
-          </button>
-          <button onClick={onConfirm} className="btn btn-primary">
+          <button onClick={onClose} className="btn btn-primary">
             Aceptar
           </button>
         </div>
@@ -73,8 +70,6 @@ export default function ConfirmDialog({ open, title, message, onConfirm, onCance
         }
         .btn-primary { background-color: #facc15; color: #111827; }
         .btn-primary:hover { background-color: #eab308; }
-        .btn-secondary { background-color: #3a3a3c; color: #eaeaea; }
-        .btn-secondary:hover { background-color: #4a4a4e; }
       `}</style>
     </div>
   );

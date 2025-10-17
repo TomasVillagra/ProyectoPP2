@@ -4,120 +4,124 @@ import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import AlertDialog from "../../components/AlertDialog";
-import { FaEdit, FaLock, FaLockOpen, FaPlus, FaSearch } from "react-icons/fa";
+import { FaEdit, FaLockOpen, FaSearch, FaArrowLeft } from "react-icons/fa";
 
-export default function ProveedoresList() {
+export default function InventarioInactivosList() {
   const [rows, setRows] = useState([]);
   const [dialog, setDialog] = useState({ isOpen: false, item: null, action: null });
   const [alert, setAlert] = useState({ isOpen: false, message: "" });
-  const [search, setSearch] = useState(""); // 🔍 búsqueda
+  const [search, setSearch] = useState("");
 
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => {
+    cargarInsumos();
+  }, []);
 
-  const cargar = () => {
-    api.get("/api/proveedores/").then((res) => {
+  const cargarInsumos = () => {
+    api.get("/api/insumos/").then((res) => {
       const data = Array.isArray(res.data?.results) ? res.data.results : res.data;
-      // 🔹 Mostrar solo ACTIVOS
-      const activos = (data || []).filter((r) => Number(r?.id_estado_prov) === 1);
-      setRows(activos);
-    });
-  };
-
-  const handleToggleEstado = (prov) => {
-    const isActivating = prov.id_estado_prov !== 1;
-    setDialog({
-      isOpen: true,
-      item: prov,
-      action: isActivating ? "activar" : "desactivar",
+      // Solo inactivos (id_estado_insumo === 2)
+      setRows((data || []).filter((r) => Number(r?.id_estado_insumo) === 2));
     });
   };
 
   const onConfirmToggleEstado = async () => {
     if (!dialog.item) return;
-    const action = dialog.action;
     try {
-      await api.put(`/api/proveedores/${dialog.item.id_proveedor}/`, {
+      await api.put(`/api/insumos/${dialog.item.id_insumo}/`, {
         ...dialog.item,
-        id_estado_prov: action === "activar" ? 1 : 2,
+        id_estado_insumo: 1, // Activar
       });
-      setAlert({ isOpen: true, message: `Proveedor ${action}do correctamente.` });
-      cargar();
-    } catch (e) {
-      console.error(e);
-      setAlert({ isOpen: true, message: `No se pudo ${action} el proveedor.` });
+      setAlert({ isOpen: true, message: `Insumo activado correctamente.` });
+      cargarInsumos();
+    } catch (err) {
+      console.error(err);
+      setAlert({ isOpen: true, message: `Error al activar el insumo.` });
     } finally {
       setDialog({ isOpen: false, item: null, action: null });
     }
   };
 
-  const estadoChip = (id, nombre) => {
-    const label = nombre ?? (id === 1 ? "Activo" : "Inactivo");
-    const isActive = id === 1;
-    return <span className={`status-chip ${isActive ? 'active' : 'inactive'}`}>{label}</span>;
+  const handleActivate = (insumo) => {
+    setDialog({ isOpen: true, item: insumo, action: "activar" });
   };
 
-  // 🔍 filtro búsqueda (ignora mayúsculas y espacios)
-  const norm = (t) => (t ? t.toString().toLowerCase().replace(/\s+/g, "") : "");
-  const filteredRows = rows.filter((r) =>
-    norm(r.prov_nombre).includes(norm(search))
-    || norm(r.prov_correo).includes(norm(search))
-    || norm(r.prov_tel).includes(norm(search))
+  const formatNumber = (num) => {
+    if (num === null || num === undefined || num === "") return "-";
+    return Number(num).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  // Búsqueda que ignora mayúsculas y espacios
+  const normalize = (txt) => (txt ? txt.toString().toLowerCase().replace(/\s+/g, "") : "");
+  const filteredRows = rows.filter((r) => normalize(r.ins_nombre).includes(normalize(search)));
+
+  const estadoChip = () => (
+    <span className="status-chip inactive">Inactivo</span>
   );
 
   return (
     <DashboardLayout>
       <div className="page-header">
-        <h2>Proveedores</h2>
-        <div className="header-actions">
-          <Link to="/proveedores/inactivos" className="btn btn-secondary">Ver inactivos</Link>
-          <Link to="/proveedores/registrar" className="btn btn-primary">
-            <FaPlus /> Registrar proveedor
-          </Link>
-        </div>
+        <h2>Insumos Inactivos</h2>
+        {/* Volver a Inventario (activos) */}
+        <Link to="/inventario" className="btn btn-secondary">
+          <FaArrowLeft /> Volver a activos
+        </Link>
       </div>
 
-      {/* 🔍 Barra de búsqueda */}
+      {/* Búsqueda */}
       <div className="search-bar">
         <FaSearch className="search-icon" />
         <input
           type="text"
-          placeholder="Buscar por nombre, correo o teléfono..."
+          placeholder="Buscar insumo inactivo..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
+      {/* Tabla */}
       <div className="table-container">
         <table className="table">
           <thead>
             <tr>
-              <th>ID</th><th>Nombre</th><th>Teléfono</th><th>Correo</th><th>Dirección</th><th>Estado</th><th>Acciones</th>
+              <th>ID</th>
+              <th>Nombre</th>
+              <th>Unidad</th>
+              <th>Stock actual</th>
+              <th>Pto. reposición</th>
+              <th>Stock min</th>
+              <th>Stock max</th>
+              <th>Estado</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {filteredRows.map((r) => (
-              <tr key={r.id_proveedor}>
-                <td>{r.id_proveedor}</td>
-                <td>{r.prov_nombre}</td>
-                <td>{r.prov_tel || "-"}</td>
-                <td>{r.prov_correo || "-"}</td>
-                <td>{r.prov_direccion || "-"}</td>
-                <td>{estadoChip(r.id_estado_prov, r.estado_nombre)}</td>
+              <tr key={r.id_insumo}>
+                <td>{r.id_insumo}</td>
+                <td>{r.ins_nombre}</td>
+                <td>{r.ins_unidad}</td>
+                <td>{formatNumber(r.ins_stock_actual)}</td>
+                <td>{formatNumber(r.ins_punto_reposicion)}</td>
+                <td>{formatNumber(r.ins_stock_min)}</td>
+                <td>{formatNumber(r.ins_stock_max)}</td>
+                <td>{estadoChip()}</td>
                 <td className="actions-cell">
-                  <Link to={`/proveedores/editar/${r.id_proveedor}`} className="btn btn-secondary">
+                  <Link to={`/inventario/editar/${r.id_insumo}`} className="btn btn-secondary">
                     <FaEdit /> Editar
                   </Link>
-                  <button
-                    className={`btn ${r.id_estado_prov === 1 ? 'btn-danger' : 'btn-success'}`}
-                    onClick={() => handleToggleEstado(r)}
-                  >
-                    {r.id_estado_prov === 1 ? <><FaLock /> Desactivar</> : <><FaLockOpen /> Activar</>}
+                  <button className="btn btn-success" onClick={() => handleActivate(r)}>
+                    <FaLockOpen /> Activar
                   </button>
                 </td>
               </tr>
             ))}
             {filteredRows.length === 0 && (
-              <tr><td colSpan="7" className="empty-row">No hay proveedores que coincidan con la búsqueda.</td></tr>
+              <tr>
+                <td colSpan="9" className="empty-row">
+                  No hay insumos inactivos o no coinciden con la búsqueda.
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
@@ -125,8 +129,8 @@ export default function ProveedoresList() {
 
       <ConfirmDialog
         open={dialog.isOpen}
-        title={`Confirmar ${dialog.action === "activar" ? "Activación" : "Desactivación"}`}
-        message={`¿Seguro que querés ${dialog.action} al proveedor "${dialog.item?.prov_nombre}"?`}
+        title="Confirmar Activación"
+        message={`¿Seguro que querés activar el insumo "${dialog.item?.ins_nombre}"?`}
         onConfirm={onConfirmToggleEstado}
         onCancel={() => setDialog({ isOpen: false, item: null, action: null })}
       />
@@ -140,13 +144,17 @@ export default function ProveedoresList() {
       <style>{`
         .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .page-header h2 { margin: 0; font-size: 1.75rem; color: #fff; }
-        .header-actions { display: flex; gap: 8px; }
 
-        /* 🔍 Búsqueda */
         .search-bar {
-          display: flex; align-items: center; background-color: #3a3a3c;
-          border: 1px solid #4a4a4e; border-radius: 8px; padding: 6px 10px;
-          margin-bottom: 16px; width: 100%; max-width: 480px;
+          display: flex;
+          align-items: center;
+          background-color: #3a3a3c;
+          border: 1px solid #4a4a4e;
+          border-radius: 8px;
+          padding: 6px 10px;
+          margin-bottom: 16px;
+          width: 100%;
+          max-width: 400px;
         }
         .search-icon { color: #facc15; margin-right: 8px; }
         .search-bar input {
@@ -163,16 +171,11 @@ export default function ProveedoresList() {
         .empty-row { text-align: center; color: #a0a0a0; padding: 32px; }
 
         .status-chip { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
-        .status-chip.active { background: rgba(52, 211, 153, 0.1); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.2); }
         .status-chip.inactive { background: rgba(248, 113, 113, 0.1); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.2); }
 
         .btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; text-decoration: none; transition: background-color 0.2s ease; }
-        .btn-primary { background-color: #facc15; color: #111827; }
-        .btn-primary:hover { background-color: #eab308; }
         .btn-secondary { background-color: #3a3a3c; color: #eaeaea; }
         .btn-secondary:hover { background-color: #4a4a4e; }
-        .btn-danger { background-color: rgba(239, 68, 68, 0.2); color: #ef4444; }
-        .btn-danger:hover { background-color: rgba(239, 68, 68, 0.3); }
         .btn-success { background-color: rgba(34, 197, 94, 0.2); color: #22c55e; }
         .btn-success:hover { background-color: rgba(34, 197, 94, 0.3); }
       `}</style>

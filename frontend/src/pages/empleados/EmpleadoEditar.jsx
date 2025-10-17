@@ -23,8 +23,7 @@ export default function EmpleadoEditar() {
     });
   }, [id]);
 
-  const onChange = (e) =>
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  const onChange = (e) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -44,175 +43,80 @@ export default function EmpleadoEditar() {
 
   return (
     <DashboardLayout>
-      <h2 style={{ margin: 0, marginBottom: 12 }}>Editar Empleado</h2>
-      {msg && <p style={{ marginBottom: 12 }}>{msg}</p>}
+      <div className="form-container">
+        <h2 className="form-title">Editar Empleado</h2>
+        {msg && <p className="form-message">{msg}</p>}
 
-      <form onSubmit={onSubmit} className="form">
-        <div className="row">
-          <label htmlFor="emp_nombre">Nombre =</label>
-          <input
-            id="emp_nombre"
-            name="emp_nombre"
-            value={form.emp_nombre || ""}
-            onChange={onChange}
-            required
-          />
-        </div>
+        <form onSubmit={onSubmit} className="form">
+          <div className="form-section">
+            <h3 className="section-title">Datos Personales</h3>
+            <div className="form-group">
+              <label htmlFor="emp_nombre">Nombre</label>
+              <input id="emp_nombre" name="emp_nombre" value={form.emp_nombre || ""} onChange={onChange} required />
+            </div>
+            <div className="form-group">
+              <label htmlFor="emp_apellido">Apellido</label>
+              <input id="emp_apellido" name="emp_apellido" value={form.emp_apellido || ""} onChange={onChange} required />
+            </div>
+            <div className="form-group">
+              <label htmlFor="emp_dni">DNI (Opcional)</label>
+              <input id="emp_dni" name="emp_dni" value={form.emp_dni || ""} onChange={onChange} />
+            </div>
+            <div className="form-group">
+              <label htmlFor="emp_tel">Teléfono (Opcional)</label>
+              <input id="emp_tel" name="emp_tel" value={form.emp_tel || ""} onChange={onChange} />
+            </div>
+            <div className="form-group span-2">
+              <label htmlFor="emp_correo">Correo (Opcional)</label>
+              <input id="emp_correo" type="email" name="emp_correo" value={form.emp_correo || ""} onChange={onChange} />
+            </div>
+          </div>
 
-        <div className="row">
-          <label htmlFor="emp_apellido">Apellido =</label>
-          <input
-            id="emp_apellido"
-            name="emp_apellido"
-            value={form.emp_apellido || ""}
-            onChange={onChange}
-            required
-          />
-        </div>
+          <div className="form-section">
+            <h3 className="section-title">Datos del Sistema</h3>
+            <div className="form-group">
+              <label htmlFor="id_cargo_emp">Cargo</label>
+              <select id="id_cargo_emp" name="id_cargo_emp" value={form.id_cargo_emp || ""} onChange={onChange} required>
+                <option value="">Elegí un cargo…</option>
+                {cargos.map(c => <option key={c.id_cargo_emp} value={c.id_cargo_emp}>{c.carg_nombre}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label htmlFor="id_estado_empleado">Estado</label>
+              <select id="id_estado_empleado" name="id_estado_empleado" value={form.id_estado_empleado || ""} onChange={onChange} required>
+                <option value="">Elegí un estado…</option>
+                {estados.map(e => <option key={e.id_estado_empleado} value={e.id_estado_empleado}>{e.estemp_nombre}</option>)}
+              </select>
+            </div>
+          </div>
 
-        <div className="row">
-          <label htmlFor="emp_tel">Teléfono =</label>
-          <input
-            id="emp_tel"
-            name="emp_tel"
-            value={form.emp_tel || ""}
-            onChange={onChange}
-          />
-        </div>
-
-        <div className="row">
-          <label htmlFor="emp_correo">Correo =</label>
-          <input
-            id="emp_correo"
-            name="emp_correo"
-            value={form.emp_correo || ""}
-            onChange={onChange}
-          />
-        </div>
-
-        <div className="row">
-          <label htmlFor="emp_dni">DNI =</label>
-          <input
-            id="emp_dni"
-            name="emp_dni"
-            value={form.emp_dni || ""}
-            onChange={onChange}
-          />
-        </div>
-
-        <div className="row">
-          <label htmlFor="id_cargo_emp">Cargo =</label>
-          <select
-            id="id_cargo_emp"
-            name="id_cargo_emp"
-            value={form.id_cargo_emp || ""}
-            onChange={onChange}
-            required
-          >
-            <option value="">Elegí un cargo…</option>
-            {cargos.map((c) => (
-              <option key={c.id_cargo_emp} value={c.id_cargo_emp}>
-                {c.carg_nombre}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="row">
-          <label htmlFor="id_estado_empleado">Estado =</label>
-          <select
-            id="id_estado_empleado"
-            name="id_estado_empleado"
-            value={form.id_estado_empleado || ""}
-            onChange={onChange}
-            required
-          >
-            <option value="">Elegí un estado…</option>
-            {estados.map((e) => (
-              <option
-                key={e.id_estado_empleado}
-                value={e.id_estado_empleado}
-              >
-                {e.estemp_nombre}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="actions">
-          <button type="submit" className="btn primary">
-            Guardar cambios
-          </button>
-          <button
-            type="button"
-            className="btn ghost"
-            onClick={() => navigate("/empleados")}
-          >
-            Cancelar
-          </button>
-        </div>
-      </form>
-
-      <style>{styles}</style>
+          <div className="form-actions span-2">
+            <button type="submit" className="btn btn-primary">Guardar Cambios</button>
+            <button type="button" className="btn btn-secondary" onClick={() => navigate("/empleados")}>Cancelar</button>
+          </div>
+        </form>
+      </div>
+      <style>{formStyles}</style>
     </DashboardLayout>
   );
 }
 
-const styles = `
-  .form { display: grid; gap: 12px; max-width: 980px; }
-  .row {
-    display: grid;
-    grid-template-columns: 220px 1fr;
-    gap: 12px;
-    align-items: center;
-    background: #121212;
-    border: 1px solid #232323;
-    border-radius: 12px;
-    padding: 12px 14px;
-  }
-  label {
-    color: #bdbdbd;
-    font-weight: 600;
-    letter-spacing: .2px;
-    justify-self: end;
-  }
-  input, select {
-    width: 100%;
-    background: #0f0f0f;
-    color: #fff;
-    border: 1px solid #2a2a2a;
-    border-radius: 10px;
-    padding: 10px 12px;
-    outline: none;
-  }
-  input:focus, select:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59,130,246,.2);
-  }
-  .actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 6px;
-  }
-  .btn {
-    padding: 10px 14px;
-    border-radius: 10px;
-    border: 1px solid #2a2a2a;
-    cursor: pointer;
-  }
-  .btn.primary {
-    background: #2563eb;
-    border-color: #2563eb;
-    color: #fff;
-    font-weight: 700;
-  }
-  .btn.primary:hover { filter: brightness(1.05); }
-  .btn.ghost {
-    background: transparent;
-    color: #eaeaea;
-  }
-  .btn.ghost:hover {
-    background: #1b1b1b;
-  }
+const formStyles = `
+  .form-container { background-color: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 12px; padding: 24px; max-width: 900px; margin: 0 auto; }
+  .form-title { margin: 0 0 24px 0; font-size: 1.5rem; }
+  .form-message { margin: 0 0 16px 0; color: #facc15; }
+  .form { display: grid; grid-template-columns: 1fr; gap: 24px; }
+  .form-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; border-top: 1px solid #3a3a3c; padding-top: 24px; }
+  .section-title { grid-column: 1 / -1; margin: 0 0 8px 0; font-size: 1rem; color: #a0a0a0; text-transform: uppercase; letter-spacing: 0.5px; }
+  .form-group { display: flex; flex-direction: column; gap: 8px; }
+  .form-group.span-2 { grid-column: 1 / -1; }
+  .form-group label { font-weight: 600; color: #d1d5db; }
+  .form-group input, .form-group select { background-color: #3a3a3c; color: #fff; border: 1px solid #4a4a4e; border-radius: 8px; padding: 10px 12px; outline: none; transition: border-color 0.2s ease; }
+  .form-group input:focus, .form-group select:focus { border-color: #facc15; }
+  .form-actions { display: flex; gap: 12px; margin-top: 16px; grid-column: 1 / -1; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; text-decoration: none; transition: background-color 0.2s ease; }
+  .btn-primary { background-color: #facc15; color: #111827; }
+  .btn-primary:hover { background-color: #eab308; }
+  .btn-secondary { background-color: #3a3a3c; color: #eaeaea; }
+  .btn-secondary:hover { background-color: #4a4a4e; }
 `;
-
