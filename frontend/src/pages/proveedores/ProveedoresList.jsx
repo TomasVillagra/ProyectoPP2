@@ -4,20 +4,19 @@ import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import AlertDialog from "../../components/AlertDialog";
-import { FaEdit, FaLock, FaLockOpen, FaPlus, FaSearch } from "react-icons/fa";
+import { FaEdit, FaLock, FaLockOpen, FaPlus, FaSearch, FaBoxes } from "react-icons/fa";
 
 export default function ProveedoresList() {
   const [rows, setRows] = useState([]);
   const [dialog, setDialog] = useState({ isOpen: false, item: null, action: null });
   const [alert, setAlert] = useState({ isOpen: false, message: "" });
-  const [search, setSearch] = useState(""); // 🔍 búsqueda
+  const [search, setSearch] = useState("");
 
   useEffect(() => { cargar(); }, []);
 
   const cargar = () => {
     api.get("/api/proveedores/").then((res) => {
       const data = Array.isArray(res.data?.results) ? res.data.results : res.data;
-      // 🔹 Mostrar solo ACTIVOS
       const activos = (data || []).filter((r) => Number(r?.id_estado_prov) === 1);
       setRows(activos);
     });
@@ -56,7 +55,6 @@ export default function ProveedoresList() {
     return <span className={`status-chip ${isActive ? 'active' : 'inactive'}`}>{label}</span>;
   };
 
-  // 🔍 filtro búsqueda (ignora mayúsculas y espacios)
   const norm = (t) => (t ? t.toString().toLowerCase().replace(/\s+/g, "") : "");
   const filteredRows = rows.filter((r) =>
     norm(r.prov_nombre).includes(norm(search))
@@ -76,7 +74,6 @@ export default function ProveedoresList() {
         </div>
       </div>
 
-      {/* 🔍 Barra de búsqueda */}
       <div className="search-bar">
         <FaSearch className="search-icon" />
         <input
@@ -104,6 +101,9 @@ export default function ProveedoresList() {
                 <td>{r.prov_direccion || "-"}</td>
                 <td>{estadoChip(r.id_estado_prov, r.estado_nombre)}</td>
                 <td className="actions-cell">
+                  <Link to={`/proveedores/${r.id_proveedor}/insumos`} className="btn btn-secondary" title="Ver/Vincular insumos">
+                    <FaBoxes /> Insumos
+                  </Link>
                   <Link to={`/proveedores/editar/${r.id_proveedor}`} className="btn btn-secondary">
                     <FaEdit /> Editar
                   </Link>
@@ -141,8 +141,6 @@ export default function ProveedoresList() {
         .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .page-header h2 { margin: 0; font-size: 1.75rem; color: #fff; }
         .header-actions { display: flex; gap: 8px; }
-
-        /* 🔍 Búsqueda */
         .search-bar {
           display: flex; align-items: center; background-color: #3a3a3c;
           border: 1px solid #4a4a4e; border-radius: 8px; padding: 6px 10px;
@@ -152,14 +150,13 @@ export default function ProveedoresList() {
         .search-bar input {
           flex: 1; background: transparent; border: none; outline: none; color: #fff; font-size: 1rem;
         }
-
         .table-container { background-color: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 12px; overflow: hidden; }
         .table { width: 100%; border-collapse: collapse; }
         .table th, .table td { padding: 14px 18px; text-align: left; border-bottom: 1px solid #3a3a3c; }
         .table th { background-color: #3a3a3c; color: #d1d5db; font-weight: 600; font-size: 0.875rem; text-transform: uppercase; }
         .table td { color: #eaeaea; }
         .table tbody tr:last-child td { border-bottom: none; }
-        .actions-cell { display: flex; gap: 8px; }
+        .actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
         .empty-row { text-align: center; color: #a0a0a0; padding: 32px; }
 
         .status-chip { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }

@@ -1,30 +1,44 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import AlertDialog from "../../components/AlertDialog";
-import { FaEdit, FaLock, FaLockOpen, FaPlus, FaSearch } from "react-icons/fa";
+import { FaEdit, FaLock, FaLockOpen, FaPlus, FaSearch, FaBell } from "react-icons/fa";
 
 export default function InventarioList() {
   const [rows, setRows] = useState([]);
   const [dialog, setDialog] = useState({ isOpen: false, item: null, action: null });
   const [alert, setAlert] = useState({ isOpen: false, message: "" });
-  const [showCriticos, setShowCriticos] = useState(true);
   const [search, setSearch] = useState(""); // 🔍 búsqueda
+
+  // ▼ Nuevo: dropdown de críticos
+  const [critOpen, setCritOpen] = useState(false);
+  const dropdownRef = useRef(null);
 
   useEffect(() => {
     cargarInsumos();
   }, []);
 
+  // Cerrar el dropdown si clickean fuera
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setCritOpen(false);
+      }
+    }
+    if (critOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [critOpen]);
+
   const cargarInsumos = () => {
-  api.get("/api/insumos/").then((res) => {
-    const data = Array.isArray(res.data?.results) ? res.data.results : res.data;
-    // 🔹 Mostrar solo activos
-    const activos = (data || []).filter((r) => Number(r?.id_estado_insumo) === 1);
-    setRows(activos);
-  });
-};
+    api.get("/api/insumos/").then((res) => {
+      const data = Array.isArray(res.data?.results) ? res.data.results : res.data;
+      // 🔹 Mostrar solo activos
+      const activos = (data || []).filter((r) => Number(r?.id_estado_insumo) === 1);
+      setRows(activos);
+    });
+  };
 
   const handleToggleEstado = (insumo) => {
     const isActivating = insumo.id_estado_insumo !== 1;
@@ -68,29 +82,65 @@ export default function InventarioList() {
     return <span className={`status-chip ${isActive ? "active" : "inactive"}`}>{label}</span>;
   };
 
- // ⚠️ críticos: solo insumos activos y con stock por debajo del punto de reposición
-const criticos = rows.filter((r) => {
-  const actual = Number(r?.ins_stock_actual ?? 0);
-  const repo = Number(r?.ins_punto_reposicion ?? 0);
-  return (
-    Number(r?.id_estado_insumo) === 1 && // 🔹 solo activos
-    !Number.isNaN(actual) &&
-    !Number.isNaN(repo) &&
-    actual < repo
-  );
-});
+  // ⚠️ críticos: solo insumos activos y con stock por debajo del punto de reposición
+  const criticos = rows.filter((r) => {
+    const actual = Number(r?.ins_stock_actual ?? 0);
+    const repo = Number(r?.ins_punto_reposicion ?? 0);
+    return (
+      Number(r?.id_estado_insumo) === 1 &&
+      !Number.isNaN(actual) &&
+      !Number.isNaN(repo) &&
+      actual < repo
+    );
+  });
+
   // 🔍 filtro búsqueda (ignora mayúsculas y espacios)
-  const normalizar = (txt) =>
-    txt ? txt.toString().toLowerCase().replace(/\s+/g, "") : "";
-  const filteredRows = rows.filter((r) =>
-    normalizar(r.ins_nombre).includes(normalizar(search))
-  );
+  const normalizar = (txt) => (txt ? txt.toString().toLowerCase().replace(/\s+/g, "") : "");
+  const filteredRows = rows.filter((r) => normalizar(r.ins_nombre).includes(normalizar(search)));
 
   return (
     <DashboardLayout>
       <div className="page-header">
         <h2>Inventario (Insumos)</h2>
-        <div className="header-actions">
+
+        <div className="header-actions" ref={dropdownRef}>
+          {/* ▼ Notificación desplegable de críticos */}
+          <div className="notif-wrap">
+            <button
+              type="button"
+              className={`notif-btn ${criticos.length ? "has-crit" : ""}`}
+              onClick={() => setCritOpen((v) => !v)}
+              title="Insumos en punto crítico"
+            >
+              <FaBell />
+              <span className="notif-label">Insumos en punto crítico</span>
+              <span className="notif-badge">{criticos.length}</span>
+            </button>
+
+            {critOpen && (
+              <div className="notif-dropdown">
+                <div className="notif-title">Insumos en punto crítico</div>
+                {criticos.length === 0 ? (
+                  <div className="notif-empty">No hay insumos críticos.</div>
+                ) : (
+                  <ul className="notif-list">
+                    {criticos.map((i) => (
+                      <li key={`critico-${i.id_insumo}`} className="notif-item">
+                        <div className="notif-row">
+                          <span className="dot" />
+                          <span className="name">{i.ins_nombre}</span>
+                        </div>
+                        <div className="metrics">
+                          Stock: {formatNumber(i.ins_stock_actual)} {i.ins_unidad} · Reposición: {formatNumber(i.ins_punto_reposicion)}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+
           <Link to="/inventario/inactivos" className="btn btn-secondary">
             Ver inactivos
           </Link>
@@ -110,38 +160,6 @@ const criticos = rows.filter((r) => {
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
-
-      {/* ⚠️ Alerta de insumos críticos */}
-      {showCriticos && criticos.length > 0 && (
-        <div className="critical-alert">
-          <div className="critical-alert-header">
-            <strong>
-              {criticos.length} insumo
-              {criticos.length > 1 ? "s" : ""} en nivel crítico
-            </strong>
-            <button
-              className="critical-close"
-              onClick={() => setShowCriticos(false)}
-            >
-              Cerrar
-            </button>
-          </div>
-          <ul className="critical-list">
-            {criticos.map((i) => (
-              <li key={`critico-${i.id_insumo}`}>
-                <div className="critical-item">
-                  <span className="critical-icon">⚠️</span>
-                  <span className="critical-name">{i.ins_nombre}</span>
-                </div>
-                <span className="critical-metrics">
-                  Stock actual: {formatNumber(i.ins_stock_actual)} {i.ins_unidad} — Punto de reposición:{" "}
-                  {formatNumber(i.ins_punto_reposicion)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {/* Tabla de insumos */}
       <div className="table-container">
@@ -171,16 +189,11 @@ const criticos = rows.filter((r) => {
                 <td>{formatNumber(r.ins_stock_max)}</td>
                 <td>{estadoChip(r.id_estado_insumo, r.estado_nombre)}</td>
                 <td className="actions-cell">
-                  <Link
-                    to={`/inventario/editar/${r.id_insumo}`}
-                    className="btn btn-secondary"
-                  >
+                  <Link to={`/inventario/editar/${r.id_insumo}`} className="btn btn-secondary">
                     <FaEdit /> Editar
                   </Link>
                   <button
-                    className={`btn ${
-                      r.id_estado_insumo === 1 ? "btn-danger" : "btn-success"
-                    }`}
+                    className={`btn ${r.id_estado_insumo === 1 ? "btn-danger" : "btn-success"}`}
                     onClick={() => handleToggleEstado(r)}
                   >
                     {r.id_estado_insumo === 1 ? (
@@ -209,9 +222,7 @@ const criticos = rows.filter((r) => {
 
       <ConfirmDialog
         open={dialog.isOpen}
-        title={`Confirmar ${
-          dialog.action === "activar" ? "Activación" : "Desactivación"
-        }`}
+        title={`Confirmar ${dialog.action === "activar" ? "Activación" : "Desactivación"}`}
         message={`¿Seguro que querés ${dialog.action} el insumo "${dialog.item?.ins_nombre}"?`}
         onConfirm={onConfirmToggleEstado}
         onCancel={() => setDialog({ isOpen: false, item: null, action: null })}
@@ -226,94 +237,48 @@ const criticos = rows.filter((r) => {
       <style>{`
         .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .page-header h2 { margin: 0; font-size: 1.75rem; color: #fff; }
-        .header-actions { display: flex; gap: 8px; }
+        .header-actions { display: flex; gap: 8px; align-items: center; position: relative; }
+
+        /* 🔔 Notificación críticos */
+        .notif-wrap { position: relative; }
+        .notif-btn {
+          display: inline-flex; align-items: center; gap: 8px;
+          background-color: #3a3a3c; color: #eaeaea;
+          border: 1px solid #4a4a4e; border-radius: 999px;
+          padding: 6px 10px; cursor: pointer; font-weight: 700;
+        }
+        .notif-btn.has-crit { border-color: rgba(250, 204, 21, 0.6); box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.15) inset; }
+        .notif-label { font-size: 0.9rem; }
+        .notif-badge {
+          background: #facc15; color: #111827; font-weight: 900;
+          border-radius: 999px; padding: 0 8px; line-height: 20px; min-width: 22px; text-align: center;
+        }
+        .notif-dropdown {
+          position: absolute; top: 110%; right: 0; z-index: 40;
+          width: 360px; max-height: 60vh; overflow: auto;
+          background: #1b1b1d; border: 1px solid #3a3a3c; border-radius: 12px;
+          box-shadow: 0 10px 30px rgba(0,0,0,.4);
+          padding: 10px;
+        }
+        .notif-title { color: #facc15; font-weight: 800; margin: 6px 6px 10px; }
+        .notif-empty { color: #cfcfcf; padding: 8px 10px; }
+        .notif-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+        .notif-item { border-bottom: 1px solid rgba(250, 204, 21, 0.12); padding: 6px 8px 10px; }
+        .notif-item:last-child { border-bottom: none; }
+        .notif-row { display: flex; align-items: center; gap: 8px; color: #fff; font-weight: 700; }
+        .dot { width: 10px; height: 10px; background: #f87171; border-radius: 999px; display: inline-block; }
+        .name { flex: 1; }
+        .metrics { color: #eaeaea; opacity: .9; margin-left: 18px; font-size: .92rem; }
 
         /* 🔍 Búsqueda */
         .search-bar {
-          display: flex;
-          align-items: center;
-          background-color: #3a3a3c;
-          border: 1px solid #4a4a4e;
-          border-radius: 8px;
-          padding: 6px 10px;
-          margin-bottom: 16px;
-          width: 100%;
-          max-width: 400px;
+          display: flex; align-items: center;
+          background-color: #3a3a3c; border: 1px solid #4a4a4e;
+          border-radius: 8px; padding: 6px 10px; margin-bottom: 16px;
+          width: 100%; max-width: 400px;
         }
-        .search-icon {
-          color: #facc15;
-          margin-right: 8px;
-        }
-        .search-bar input {
-          flex: 1;
-          background: transparent;
-          border: none;
-          outline: none;
-          color: #fff;
-          font-size: 1rem;
-        }
-
-        /* ⚠️ Alerta crítica */
-        .critical-alert {
-          background: rgba(250, 204, 21, 0.12);
-          border: 1px solid rgba(250, 204, 21, 0.35);
-          border-radius: 12px;
-          padding: 14px 16px;
-          margin-bottom: 16px;
-        }
-        .critical-alert-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 10px;
-          color: #facc15;
-          font-weight: 700;
-        }
-        .critical-close {
-          background: transparent;
-          border: 1px solid rgba(250, 204, 21, 0.35);
-          color: #facc15;
-          padding: 4px 10px;
-          border-radius: 999px;
-          cursor: pointer;
-          font-weight: 700;
-        }
-        .critical-close:hover {
-          background: rgba(250, 204, 21, 0.12);
-        }
-        .critical-list {
-          margin: 0;
-          padding: 0;
-          list-style: none;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .critical-list li {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 2px;
-          color: #eaeaea;
-          font-size: 0.95rem;
-          border-bottom: 1px solid rgba(250, 204, 21, 0.15);
-          padding-bottom: 4px;
-        }
-        .critical-item {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-        }
-        .critical-icon {
-          color: #f87171;
-          font-size: 1.1rem;
-        }
-        .critical-name {
-          font-weight: 700;
-        }
-        .critical-metrics {
-          opacity: 0.85;
-        }
+        .search-icon { color: #facc15; margin-right: 8px; }
+        .search-bar input { flex: 1; background: transparent; border: none; outline: none; color: #fff; font-size: 1rem; }
 
         /* Tabla */
         .table-container { background-color: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 12px; overflow: hidden; }
@@ -327,6 +292,7 @@ const criticos = rows.filter((r) => {
         .status-chip { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
         .status-chip.active { background: rgba(52, 211, 153, 0.1); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.2); }
         .status-chip.inactive { background: rgba(248, 113, 113, 0.1); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.2); }
+
         .btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; text-decoration: none; transition: background-color 0.2s ease; }
         .btn-primary { background-color: #facc15; color: #111827; }
         .btn-primary:hover { background-color: #eab308; }

@@ -5,6 +5,11 @@ import logo from "../../assets/logo.png";
 import { FaHome, FaFileInvoice, FaChartLine, FaCashRegister, FaBoxOpen, FaTruck, FaUsers, FaCog } from "react-icons/fa";
 import backgroundImage from '../../assets/pizza-background.jpg';
 
+const norm = (s) =>
+  String(s ?? "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
 // ... (Las funciones 'isAdminUser' y 'fetchUserWithCargo' se mantienen exactamente igual)
 const isAdminUser = (u) => {
   if (!u) return false;
@@ -14,45 +19,103 @@ const isAdminUser = (u) => {
     u.is_superuser === true ||
     u.is_staff === true ||
     idCargo === 5 ||
-    nombreCargo === "administrador"
+    nombreCargo === "Administrador"
   );
 };
 
+// ✅ Obtiene el usuario + cargo sin asumir que username = emp_nombre
 async function fetchUserWithCargo() {
+  // 1) info básica del auth
   const { data: me } = await api.get("/api/auth/me/");
   let meFull = { ...me };
-  if (meFull.id_cargo_emp != null || meFull.cargo_nombre != null || meFull.cargo?.id != null) { return meFull; }
-  const username = (me?.username || "").trim();
-  if (!username) return meFull;
-  const matchByUsername = (emp) => {
-    const empName = (emp?.emp_nombre || "").trim().toLowerCase();
-    return empName && empName === username.toLowerCase();
+
+  // si ya viene el cargo, devolvémoslo
+  if (
+    meFull.id_cargo_emp != null ||
+    meFull.cargo_nombre != null ||
+    meFull.cargo?.id != null
+  ) {
+    return meFull;
+  }
+
+  const loginUser = (me?.username || "").trim();
+  if (!loginUser) return meFull;
+
+  // función que intenta mapear un registro de empleado al auth user
+  const matchByLogin = (emp) => {
+    const candidates = [
+      emp?.username,                     // si el empleado tiene username propio
+      emp?.user?.username,               // si está enlazado a un User de Django
+      (emp?.emp_correo || "").split("@")[0], // local-part del correo
+      emp?.emp_nombre,                   // por si lo usaste como username
+    ]
+      .filter(Boolean)
+      .map((s) =>
+        String(s)
+          .trim()
+          .normalize("NFD")
+          .replace(/\p{Diacritic}/gu, "")
+          .toLowerCase()
+      );
+
+    const normLogin = String(loginUser)
+      .trim()
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase();
+
+    return candidates.includes(normLogin);
   };
+
+  // helper para traer cargo al objeto meFull
   const pick = (emp) => ({
     ...meFull,
-    id_cargo_emp: emp.id_cargo_emp,
-    cargo_nombre: emp.cargo_nombre ?? emp.cargo?.carg_nombre,
-    cargo: emp.cargo,
+    id_cargo_emp:
+      emp.id_cargo_emp ?? emp.cargo?.id ?? emp.cargo?.id_cargo_emp ?? null,
+    cargo_nombre:
+      emp.cargo_nombre ?? emp.cargo?.carg_nombre ?? emp.cargo?.nombre ?? null,
+    cargo: emp.cargo ?? meFull.cargo ?? null,
   });
+
+  // 2) /api/empleados/me/ (si existe)
   try {
     const { data } = await api.get("/api/empleados/me/");
     const emp = Array.isArray(data?.results) ? data.results[0] : data;
-    if (emp && matchByUsername(emp)) return pick(emp);
-  } catch {}
+    if (emp && matchByLogin(emp)) return pick(emp);
+  } catch (_) {}
+
+  // 3) /api/empleados/?username=
   try {
-    const { data } = await api.get(`/api/empleados/?username=${encodeURIComponent(username)}`);
-    const list = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
-    const emp = list.find(matchByUsername);
+    const { data } = await api.get(
+      `/api/empleados/?username=${encodeURIComponent(loginUser)}`
+    );
+    const list = Array.isArray(data?.results)
+      ? data.results
+      : Array.isArray(data)
+      ? data
+      : [];
+    const emp = list.find(matchByLogin);
     if (emp) return pick(emp);
-  } catch {}
+  } catch (_) {}
+
+  // 4) /api/empleados/?search=
   try {
-    const { data } = await api.get(`/api/empleados/?search=${encodeURIComponent(username)}`);
-    const list = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
-    const emp = list.find(matchByUsername);
+    const { data } = await api.get(
+      `/api/empleados/?search=${encodeURIComponent(loginUser)}`
+    );
+    const list = Array.isArray(data?.results)
+      ? data.results
+      : Array.isArray(data)
+      ? data
+      : [];
+    const emp = list.find(matchByLogin);
     if (emp) return pick(emp);
-  } catch {}
+  } catch (_) {}
+
+  // 5) último recurso
   return meFull;
 }
+
 
 export default function DashboardLayout({ children, topRight = null }) {
   const [me, setMe] = useState(null);
@@ -76,10 +139,13 @@ export default function DashboardLayout({ children, topRight = null }) {
       { key: "caja", label: "Caja", path: "/caja", icon: <FaCashRegister /> },
       { key: "inventario", label: "Inventario", path: "/inventario", icon: <FaBoxOpen /> },
       { key: "compras", label: "Compras", path: "/compras", icon: <FaTruck /> },
-      { key: "proveedores", label: "Proveedores", path: "/proveedores", icon: <FaTruck /> },
+      { key: "platos", label: "Platos", path: "/platos", icon: <FaTruck /> },
+      { key: "recetas", label: "Recetas", path: "/recetas", icon: <FaTruck /> },
+      { key: "mesas", label: "Mesas", path: "/mesas", icon: <FaTruck /> },
       ...(isAdminUser(me)
         ? [
             { key: "empleados", label: "Empleados", path: "/empleados", icon: <FaUsers /> },
+            { key: "proveedores", label: "Proveedores", path: "/proveedores", icon: <FaTruck /> },
             { key: "configuracion", label: "Configuracion", path: "/configuracion", icon: <FaCog /> },
           ]
         : []),

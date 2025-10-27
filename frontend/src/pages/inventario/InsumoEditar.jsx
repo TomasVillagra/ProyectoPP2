@@ -6,6 +6,9 @@ import DashboardLayout from "../../components/layout/DashboardLayout";
 const ESTADOS = [ { id: 1, label: "Activo" }, { id: 2, label: "Inactivo" } ];
 const UNIDADES = ["u", "kg", "g", "l", "ml"];
 
+// 👉 helper nuevo para normalizar (ignorar mayúsculas y espacios)
+const normalizeName = (s) => (s || "").toLowerCase().replace(/\s+/g, "");
+
 export default function InsumoEditar() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -20,6 +23,7 @@ export default function InsumoEditar() {
     id_estado_insumo: "1",
   });
   const [errors, setErrors] = useState({});
+  const [originalName, setOriginalName] = useState(""); // ← para permitir el mismo nombre
 
   const num = (v) => (v === "" || v === null || v === undefined ? null : Number(v));
 
@@ -65,6 +69,9 @@ export default function InsumoEditar() {
         e.ins_punto_reposicion = "Debe ser ≤ al stock máximo.";
       }
     }
+    if (values.ins_stock_max !== "" && stockMax !== null && !isNaN(stockMax) && stockActual !== null && !isNaN(stockActual)) {
+      if (stockActual > stockMax) e.ins_stock_actual = "El stock actual no puede superar al stock máximo.";
+    }
 
     return e;
   };
@@ -80,6 +87,7 @@ export default function InsumoEditar() {
         ins_stock_max: data.ins_stock_max ?? "",
         id_estado_insumo: String(data.id_estado_insumo ?? 1),
       });
+      setOriginalName(data.ins_nombre ?? ""); // ← guardo el original
     }).catch((e) => console.error(e));
   }, [id]);
 
@@ -99,6 +107,19 @@ export default function InsumoEditar() {
     const nextErrors = validate(form);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
+
+    // ✅ Chequeo de duplicado (ignora mayúsculas y espacios) ANTES del PUT
+    {
+      const wanted = normalizeName(form.ins_nombre);
+      const original = normalizeName(originalName);
+      const { data } = await api.get(`/api/insumos/?search=${encodeURIComponent(form.ins_nombre)}`);
+      const list = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
+      const duplicated = list.some(it => normalizeName(it.ins_nombre) === wanted);
+      if (duplicated && wanted !== original) {
+        setErrors(prev => ({ ...prev, ins_nombre: "Ya existe un insumo con ese nombre." }));
+        return;
+      }
+    }
 
     try {
       await api.put(`/api/insumos/${id}/`, {
@@ -183,7 +204,7 @@ export default function InsumoEditar() {
           </div>
 
           <div className="form-group">
-            <label htmlFor="ins_stock_max">Stock máximo (Opcional)</label>
+            <label htmlFor="ins_stock_max">Stock máximo </label>
             <input
               id="ins_stock_max" name="ins_stock_max" type="number" step="0.01" min="0"
               value={form.ins_stock_max} onChange={onChange} onBlur={onBlur}
@@ -231,7 +252,7 @@ const formStyles = `
   .form {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 20px;
+    gap: 20px.
   }
   .form-group {
     display: flex;

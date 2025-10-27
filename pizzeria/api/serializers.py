@@ -5,7 +5,9 @@ from pizzeria.models import (
     Ventas, MovimientosCaja, TipoPedidos, EstadoPedidos, MetodoDePago,
     CargoEmpleados, EstadoEmpleados,
     # ─── NUEVO: modelos de proveedores ────────────────────────────────────────
-    Proveedores, EstadoProveedores, CategoriaProveedores,
+    Proveedores, EstadoProveedores, CategoriaProveedores,Recetas,DetalleRecetas,CategoriaPlatos,
+    EstadoReceta,DetallePedidos,Mesas,EstadoCompra,DetalleCompra,Compras,ProveedoresXInsumos,
+    EstadoMesas
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -39,7 +41,7 @@ class CategoriaProveedorSerializer(serializers.ModelSerializer):
 # ──────────────────────────────────────────────────────────────────────────────
 # Empleados
 # ──────────────────────────────────────────────────────────────────────────────
-class EmpleadoSerializer(serializers.ModelSerializer):
+class EmpleadosSerializer(serializers.ModelSerializer):
     # Opcionales para crear el User (login) a la vez
     username = serializers.CharField(write_only=True, required=False, allow_blank=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True, min_length=4)
@@ -81,28 +83,21 @@ class EmpleadoSerializer(serializers.ModelSerializer):
             return None
 
     def create(self, validated_data):
-        username = (validated_data.pop("username", "") or "").strip()
-        password = (validated_data.pop("password", "") or "").strip()
+        username = validated_data.pop('username', '').strip()
+        password = validated_data.pop('password', '').strip()
+        cargo = validated_data.get('id_cargo_emp')
 
-        # Si llega username+password, crear usuario de Django para login
-        if username and password:
-            if User.objects.filter(username=username).exists():
-                raise serializers.ValidationError({"username": "Ya existe un usuario con ese username."})
-
-            first_name = validated_data.get("emp_nombre", "") or ""
-            last_name = validated_data.get("emp_apellido", "") or ""
-            email = validated_data.get("emp_correo", "") or ""
-
-            User.objects.create_user(
-                username=username,
-                password=password,
-                first_name=first_name,
-                last_name=last_name,
-                email=email,
-            )
-
-        # Crear el empleado normal (FKs por id)
         empleado = Empleados.objects.create(**validated_data)
+
+        if username:
+            user, _ = User.objects.get_or_create(username=username)
+            if password:
+                user.set_password(password)
+            if cargo and cargo.id_cargo_emp == 5:  # cargo = Administrador
+                user.is_staff = True
+                user.is_superuser = True
+            user.save()
+
         return empleado
 
 
@@ -156,14 +151,37 @@ class InsumoSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 class PlatoSerializer(serializers.ModelSerializer):
+    categoria_nombre = serializers.SerializerMethodField(read_only=True)
+    estado_nombre = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = Platos
-        fields = "__all__"
+        fields = [
+            "id_plato",
+            "plt_nombre",
+            "plt_precio",
+            "plt_stock",
+            "id_categoria_plato",
+            "id_estado_plato",
+            # campos “bonitos”
+            "categoria_nombre",
+            "estado_nombre",
+        ]
 
-class PedidoSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Pedidos
-        fields = "__all__"
+    def get_categoria_nombre(self, obj):
+        try:
+            return obj.id_categoria_plato.catplt_nombre
+        except Exception:
+            return None
+
+    def get_estado_nombre(self, obj):
+        try:
+            return obj.id_estado_plato.estplt_nombre
+        except Exception:
+            return None
+
+
+
 
 class VentaSerializer(serializers.ModelSerializer):
     class Meta:
@@ -189,3 +207,367 @@ class MetodoPagoSerializer(serializers.ModelSerializer):
     class Meta:
         model = MetodoDePago
         fields = "__all__"
+
+# --- al final del archivo, debajo de tus serializers actuales ---
+
+# --- Detalle de Receta (LECTURA+ESCRITURA) ---
+class DetalleRecetaSerializer(serializers.ModelSerializer):
+    # FK explícitas para escritura
+    id_receta = serializers.PrimaryKeyRelatedField(
+        queryset=Recetas.objects.all(), write_only=True
+    )
+    id_insumo = serializers.PrimaryKeyRelatedField(
+        queryset=Insumos.objects.all()
+    )
+
+    # Lecturas “bonitas” (solo lectura)
+    insumo_nombre = serializers.SerializerMethodField(read_only=True)
+    insumo_unidad = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = DetalleRecetas
+        fields = [
+            "id_detalle_receta",
+            "id_receta",       # ⬅️ NECESARIO para crear
+            "id_insumo",
+            "detr_cant_unid",
+            # read-only decorativos
+            "insumo_nombre",
+            "insumo_unidad",
+        ]
+
+    def get_insumo_nombre(self, obj):
+        try:
+            return obj.id_insumo.ins_nombre
+        except Exception:
+            return None
+
+    def get_insumo_unidad(self, obj):
+        try:
+            return obj.id_insumo.ins_unidad
+        except Exception:
+            return None
+
+
+
+
+
+class RecetaSerializer(serializers.ModelSerializer):
+    # ⬇️ Campos calculados / “bonitos”
+    estado_nombre = serializers.SerializerMethodField(read_only=True)
+    plato_nombre = serializers.SerializerMethodField(read_only=True)
+
+    # Si querés enviar/recibir detalles anidados:
+    # detalles = DetalleRecetaSerializer(many=True, write_only=True, required=False)
+
+    class Meta:
+        model = Recetas
+        fields = [
+            "id_receta",
+            "id_plato",
+            "rec_desc",
+            "id_estado_receta",
+            # "detalles,  # ← descomentá si usás nested create/update
+            "estado_nombre",
+            "plato_nombre",
+        ]
+
+    def get_estado_nombre(self, obj):
+        # tolerante si aún no tenés FK o viene en null
+        try:
+            # si el modelo ya tiene FK: id_estado_receta -> EstadoReceta(estrec_nombre)
+            return getattr(obj.id_estado_receta, "estrec_nombre", None)
+        except Exception:
+            return None
+
+    def get_plato_nombre(self, obj):
+        try:
+            # según tu modelo de Platos: plt_nombre
+            return getattr(obj.id_plato, "plt_nombre", None)
+        except Exception:
+            return None
+
+    # Si usás nested detalles, dejá estos create/update; si no, borralos
+    # def create(self, validated_data):
+    #     detalles = validated_data.pop("detalles", [])
+    #     receta = Recetas.objects.create(**validated_data)
+    #     bulk = []
+    #     for d in detalles:
+    #         bulk.append(DetalleRecetas(
+    #             id_receta=receta,
+    #             id_insumo=Insumos.objects.get(pk=d["id_insumo"]),
+    #             detr_cant_unid=d["detr_cant_unid"],
+    #         ))
+    #     if bulk:
+    #         DetalleRecetas.objects.bulk_create(bulk)
+    #     return receta
+
+    # def update(self, instance, validated_data):
+    #     detalles = validated_data.pop("detalles", None)
+    #     for attr, val in validated_data.items():
+    #         setattr(instance, attr, val)
+    #     instance.save()
+    #     if detalles is not None:
+    #         DetalleRecetas.objects.filter(id_receta=instance).delete()
+    #         bulk = []
+    #         for d in detalles:
+    #             bulk.append(DetalleRecetas(
+    #                 id_receta=instance,
+    #                 id_insumo=Insumos.objects.get(pk=d["id_insumo"]),
+    #                 detr_cant_unid=d["detr_cant_unid"],
+    #             ))
+    #         if bulk:
+    #             DetalleRecetas.objects.bulk_create(bulk)
+    #     return instance
+class CategoriaPlatoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CategoriaPlatos
+        fields = "__all__"
+
+class EstadoRecetaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EstadoReceta
+        fields = ["id_estado_receta", "estrec_nombre"]
+
+# --- Detalle de Pedido con datos “bonitos” de plato ---
+class DetallePedidoSerializer(serializers.ModelSerializer):
+    # Podés dejar el nombre del plato como solo lectura. Si no lo querés, eliminá las 2 líneas de abajo
+    plato_nombre = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = DetallePedidos
+        fields = [
+            'id_detalle_pedido',   # o 'id' si tu PK del detalle es 'id'
+            'id_pedido',
+            'id_plato',
+            'plato_nombre',        # <-- eliminá esta línea si NO querés mostrar el nombre
+            'detped_cantidad',
+        ]
+
+    def get_plato_nombre(self, obj):
+        """
+        Deja esto si querés mostrar el nombre del plato en el JSON.
+        Ajustá 'plt_nombre' si en tu modelo se llama distinto.
+        """
+        try:
+            plato = getattr(obj, 'id_plato', None) or getattr(obj, 'plato', None)
+            if plato:
+                return getattr(plato, 'plt_nombre', None) or getattr(plato, 'nombre', None)
+        except Exception:
+            pass
+        return None
+
+
+# --- Pedido con labels, fechas y total calculado ---
+class PedidoSerializer(serializers.ModelSerializer):
+    # detalles (solo lectura) desde la relación reversa detallepedidos_set
+    detalles = DetallePedidoSerializer(source="detallepedidos_set", many=True, read_only=True)
+
+    # campos “bonitos”
+    mesa_numero = serializers.SerializerMethodField(read_only=True)
+    empleado_nombre = serializers.SerializerMethodField(read_only=True)
+    cliente_nombre = serializers.SerializerMethodField(read_only=True)
+    estado_nombre = serializers.SerializerMethodField(read_only=True)
+    tipo_nombre = serializers.SerializerMethodField(read_only=True)
+    total = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = Pedidos
+        fields = [
+            # DB
+            "id_pedido",
+            "id_mesa",
+            "id_empleado",
+            "id_cliente",
+            "id_estado_pedido",
+            "id_tipo_pedido",
+            "ped_fecha_hora_ini",
+            "ped_fecha_hora_fin",
+            "ped_descripcion",
+            # decorativos / calculados
+            "mesa_numero",
+            "empleado_nombre",
+            "cliente_nombre",
+            "estado_nombre",
+            "tipo_nombre",
+            "total",
+            # nested
+            "detalles",
+        ]
+
+    def get_mesa_numero(self, obj):
+        try:
+            return obj.id_mesa.ms_numero
+        except Exception:
+            return None
+
+    def get_empleado_nombre(self, obj):
+        try:
+            return f"{obj.id_empleado.emp_nombre} {obj.id_empleado.emp_apellido}".strip()
+        except Exception:
+            return None
+
+    def get_cliente_nombre(self, obj):
+        try:
+            return obj.id_cliente.cli_nombre
+        except Exception:
+            return None
+
+    def get_estado_nombre(self, obj):
+        try:
+            return obj.id_estado_pedido.estped_nombre
+        except Exception:
+            return None
+
+    def get_tipo_nombre(self, obj):
+        try:
+            return obj.id_tipo_pedido.tipped_nombre
+        except Exception:
+            return None
+
+    def get_total(self, obj):
+        # suma: cantidad * precio del plato
+        try:
+            total = 0.0
+            for d in obj.detallepedidos_set.select_related("id_plato").all():
+                precio = float(d.id_plato.plt_precio)
+                qty = int(d.detped_cantidad)
+                total += precio * qty
+            return total
+        except Exception:
+            return None
+
+class EstadoMesasSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EstadoMesas
+        fields = ["id_estado_mesa", "estms_nombre"]
+
+class MesasSerializer(serializers.ModelSerializer):
+    estado_mesa_nombre = serializers.CharField(
+        source="id_estado_mesa.estms_nombre", read_only=True
+    )
+    class Meta:
+        model = Mesas
+        fields = "__all__"
+
+# --- Estados de Compra (catálogo para selects) ---
+class EstadoCompraSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EstadoCompra
+        fields = ["id_estado_compra", "estcom_nombre"]
+
+
+# --- Detalle de Compra ---
+class DetalleCompraSerializer(serializers.ModelSerializer):
+    insumo_nombre = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = DetalleCompra
+        fields = [
+            "id_detalle_compra",
+            "id_compra",
+            "id_insumo",
+            "detcom_cantidad",
+            "detcom_precio_uni",
+            "detcom_subtotal",
+            "insumo_nombre",
+        ]
+
+    def get_insumo_nombre(self, obj):
+        try:
+            return obj.id_insumo.ins_nombre
+        except Exception:
+            return None
+
+
+# --- Compra (con campos bonitos y detalles en solo-lectura) ---
+class CompraSerializer(serializers.ModelSerializer):
+    empleado_nombre = serializers.SerializerMethodField(read_only=True)
+    estado_nombre   = serializers.SerializerMethodField(read_only=True)
+    proveedor_nombre = serializers.SerializerMethodField(read_only=True)
+
+    detalles = DetalleCompraSerializer(source="detallecompra_set", many=True, read_only=True)
+
+    class Meta:
+        model = Compras
+        fields = [
+            "id_compra",
+            "id_empleado",
+            "id_estado_compra",
+            "id_proveedor",          # ⬅️ NUEVO (escritura/lectura)
+            "com_fecha_hora",
+            "com_monto",
+            "com_descripcion",
+            # bonitos
+            "empleado_nombre",
+            "estado_nombre",
+            "proveedor_nombre",      # ⬅️ NUEVO (lectura)
+            # nested read-only
+            "detalles",
+        ]
+
+    def get_empleado_nombre(self, obj):
+        try:
+            return f"{obj.id_empleado.emp_nombre} {obj.id_empleado.emp_apellido}".strip()
+        except Exception:
+            return None
+
+    def get_estado_nombre(self, obj):
+        try:
+            return obj.id_estado_compra.estcom_nombre
+        except Exception:
+            return None
+
+    def get_proveedor_nombre(self, obj):
+        try:
+            return obj.id_proveedor.prov_nombre
+        except Exception:
+            return None
+
+class ProveedorInsumoSerializer(serializers.ModelSerializer):
+    # Para escritura: FKs como PK
+    id_proveedor = serializers.PrimaryKeyRelatedField(queryset=Proveedores.objects.all())
+    id_insumo    = serializers.PrimaryKeyRelatedField(queryset=Insumos.objects.all())
+
+    # Lecturas “bonitas”
+    proveedor_nombre = serializers.SerializerMethodField(read_only=True)
+    insumo_nombre    = serializers.SerializerMethodField(read_only=True)
+    insumo_unidad    = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model  = ProveedoresXInsumos
+        fields = [
+            "id_prov_x_ins",
+            "id_proveedor",
+            "id_insumo",
+            # solo lectura
+            "proveedor_nombre",
+            "insumo_nombre",
+            "insumo_unidad",
+        ]
+
+    def get_proveedor_nombre(self, obj):
+        try:
+            return obj.id_proveedor.prov_nombre
+        except Exception:
+            return None
+
+    def get_insumo_nombre(self, obj):
+        try:
+            return obj.id_insumo.ins_nombre
+        except Exception:
+            return None
+
+    def get_insumo_unidad(self, obj):
+        try:
+            return obj.id_insumo.ins_unidad
+        except Exception:
+            return None
+
+    def validate(self, attrs):
+        # Evitar duplicados por unique_together (id_proveedor, id_insumo)
+        prov = attrs.get("id_proveedor")
+        ins  = attrs.get("id_insumo")
+        if ProveedoresXInsumos.objects.filter(id_proveedor=prov, id_insumo=ins).exists():
+            raise serializers.ValidationError("Ese insumo ya está vinculado a este proveedor.")
+        return attrs

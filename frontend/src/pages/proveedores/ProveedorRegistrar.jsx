@@ -26,7 +26,9 @@ export default function ProveedorRegistrar() {
 
   const normPhoneDigits = (v) => (v || "").replace(/[^\d]/g, "");
   const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
+  const normalizeName = (s) => (s || "").toLowerCase().replace(/\s+/g, "");
 
+  // ⬇️ Misma validate que en EDITAR
   const validate = (values) => {
     const e = {};
     const nombre = (values.prov_nombre || "").trim();
@@ -34,26 +36,42 @@ export default function ProveedorRegistrar() {
     const telDigits = normPhoneDigits(values.prov_tel);
     const direccion = (values.prov_direccion || "").trim();
 
+    // NOMBRE
     if (!nombre) e.prov_nombre = "El nombre es obligatorio.";
-    else if (nombre.length < 2) e.prov_nombre = "El nombre debe tener al menos 2 caracteres.";
+    else if (nombre.length < 2)
+      e.prov_nombre = "El nombre debe tener al menos 2 caracteres.";
 
-    if (!values.id_categoria_prov) e.id_categoria_prov = "La categoría es obligatoria.";
+    // CATEGORÍA
+    if (!values.id_categoria_prov)
+      e.id_categoria_prov = "La categoría es obligatoria.";
 
+    // TELÉFONO (obligatorio + formato)
+    if (!values.prov_tel) {
+      e.prov_tel = "El teléfono es obligatorio.";
+    } else if (!/^\+?\d+$/.test(values.prov_tel.replace(/\s+/g, ""))) {
+      e.prov_tel = "El teléfono solo puede contener números y opcionalmente +.";
+    } else if (telDigits.length < 7 || telDigits.length > 20) {
+      e.prov_tel = "El teléfono debe tener entre 7 y 20 dígitos.";
+    }
+
+    // CORREO (opcional pero válido)
     if (correo) {
-      if (!isValidEmail(correo)) e.prov_correo = "Correo inválido (ej: nombre@dominio.com).";
+      if (!isValidEmail(correo))
+        e.prov_correo = "Correo inválido (ej: nombre@dominio.com).";
     }
 
-    if (values.prov_tel) {
-      if (telDigits.length < 7 || telDigits.length > 20) {
-        e.prov_tel = "El teléfono debe tener entre 7 y 20 dígitos.";
-      }
-    }
-
-    if (direccion && direccion.length > 120) {
+    // DIRECCIÓN (obligatoria + longitud)
+    if (!direccion) {
+      e.prov_direccion = "La dirección es obligatoria.";
+    } else if (direccion.length < 5) {
+      e.prov_direccion = "La dirección debe tener al menos 5 caracteres.";
+    } else if (direccion.length > 120) {
       e.prov_direccion = "La dirección no puede superar los 120 caracteres.";
     }
 
-    if (!values.id_estado_prov) e.id_estado_prov = "El estado es obligatorio.";
+    // ESTADO
+    if (!values.id_estado_prov)
+      e.id_estado_prov = "El estado es obligatorio.";
 
     return e;
   };
@@ -67,6 +85,18 @@ export default function ProveedorRegistrar() {
     const nextErrors = validate(form);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
+
+    // 🔎 Duplicado (ignora mayúsculas y espacios) ANTES del POST
+    {
+      const wanted = normalizeName(form.prov_nombre);
+      const { data } = await api.get(`/api/proveedores/?search=${encodeURIComponent(form.prov_nombre)}`);
+      const list = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
+      const duplicated = list.some(it => normalizeName(it.prov_nombre) === wanted);
+      if (duplicated) {
+        setErrors(prev => ({ ...prev, prov_nombre: "Ya existe un proveedor con ese nombre." }));
+        return;
+      }
+    }
 
     try {
       await api.post("/api/proveedores/", {
@@ -107,8 +137,8 @@ export default function ProveedorRegistrar() {
           </div>
 
           <div className="form-group">
-            <label htmlFor="prov_tel">Teléfono (Opcional)</label>
-            <input id="prov_tel" name="prov_tel" value={form.prov_tel} onChange={onChange} onBlur={onBlur} />
+            <label htmlFor="prov_tel">Teléfono </label>
+            <input id="prov_tel" name="prov_tel" value={form.prov_tel} onChange={onChange} onBlur={onBlur} required />
             {errors.prov_tel && <small className="field-error">{errors.prov_tel}</small>}
           </div>
 
@@ -119,8 +149,8 @@ export default function ProveedorRegistrar() {
           </div>
 
           <div className="form-group span-2">
-            <label htmlFor="prov_direccion">Dirección (Opcional)</label>
-            <input id="prov_direccion" name="prov_direccion" value={form.prov_direccion} onChange={onChange} onBlur={onBlur} />
+            <label htmlFor="prov_direccion">Dirección </label>
+            <input id="prov_direccion" name="prov_direccion" value={form.prov_direccion} onChange={onChange} onBlur={onBlur} required />
             {errors.prov_direccion && <small className="field-error">{errors.prov_direccion}</small>}
           </div>
 
@@ -163,3 +193,4 @@ const formStyles = `
   .btn-secondary { background-color: #3a3a3c; color: #eaeaea; }
   .btn-secondary:hover { background-color: #4a4a4e; }
 `;
+

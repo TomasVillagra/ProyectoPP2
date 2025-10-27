@@ -58,15 +58,15 @@ export default function EmpleadoRegistrar() {
               <input id="emp_apellido" name="emp_apellido" value={form.emp_apellido} onChange={onChange} required />
             </div>
             <div className="form-group">
-              <label htmlFor="emp_dni">DNI (Opcional)</label>
+              <label htmlFor="emp_dni">DNI </label>
               <input id="emp_dni" name="emp_dni" value={form.emp_dni} onChange={onChange} />
             </div>
             <div className="form-group">
-              <label htmlFor="emp_tel">Teléfono (Opcional)</label>
+              <label htmlFor="emp_tel">Teléfono </label>
               <input id="emp_tel" name="emp_tel" value={form.emp_tel} onChange={onChange} />
             </div>
             <div className="form-group span-2">
-              <label htmlFor="emp_correo">Correo (Opcional)</label>
+              <label htmlFor="emp_correo">Correo </label>
               <input id="emp_correo" type="email" name="emp_correo" value={form.emp_correo} onChange={onChange} />
             </div>
           </div>

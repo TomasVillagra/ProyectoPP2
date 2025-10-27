@@ -6,6 +6,9 @@ import DashboardLayout from "../../components/layout/DashboardLayout";
 const ESTADOS = [ { id: 1, label: "Activo" }, { id: 2, label: "Inactivo" } ];
 const UNIDADES = ["u", "kg", "g", "l", "ml"];
 
+// 👉 helper nuevo para normalizar (ignorar mayúsculas y espacios)
+const normalizeName = (s) => (s || "").toLowerCase().replace(/\s+/g, "");
+
 export default function InsumoRegistrar() {
   const navigate = useNavigate();
   const [msg, setMsg] = useState("");
@@ -65,6 +68,9 @@ export default function InsumoRegistrar() {
         e.ins_punto_reposicion = "Debe ser ≤ al stock máximo.";
       }
     }
+    if (values.ins_stock_max !== "" && stockMax !== null && !isNaN(stockMax) && stockActual !== null && !isNaN(stockActual)) {
+      if (stockActual > stockMax) e.ins_stock_actual = "El stock actual no puede superar al stock máximo.";
+    }
 
     return e;
   };
@@ -85,6 +91,18 @@ export default function InsumoRegistrar() {
     const nextErrors = validate(form);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
+
+    // ✅ Chequeo de duplicado (ignora mayúsculas y espacios) ANTES del POST
+    {
+      const wanted = normalizeName(form.ins_nombre);
+      const { data } = await api.get(`/api/insumos/?search=${encodeURIComponent(form.ins_nombre)}`);
+      const list = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
+      const duplicated = list.some(it => normalizeName(it.ins_nombre) === wanted);
+      if (duplicated) {
+        setErrors(prev => ({ ...prev, ins_nombre: "Ya existe un insumo con ese nombre." }));
+        return;
+      }
+    }
 
     try {
       await api.post("/api/insumos/", {
@@ -166,7 +184,7 @@ export default function InsumoRegistrar() {
           </div>
 
           <div className="form-group">
-            <label htmlFor="ins_stock_max">Stock máximo (Opcional)</label>
+            <label htmlFor="ins_stock_max">Stock máximo </label>
             <input
               id="ins_stock_max" name="ins_stock_max" type="number" step="0.01" min="0"
               value={form.ins_stock_max} onChange={onChange} onBlur={onBlur}
@@ -270,3 +288,4 @@ const formStyles = `
     background-color: #4a4a4e;
   }
 `;
+

@@ -115,6 +115,30 @@ class Clientes(models.Model):
         managed = False
         db_table = 'clientes'
 
+class EstadoMesas(models.Model):
+    id_estado_mesa = models.AutoField(primary_key=True)
+    estms_nombre = models.CharField(max_length=50, unique=True)
+
+    class Meta:
+        managed = False
+        db_table = 'estado_mesas'
+
+    def __str__(self):
+        return self.estms_nombre
+
+# ── Mesas (quitar ms_disponible y agregar FK) ─────────────
+class Mesas(models.Model):
+    id_mesa = models.AutoField(primary_key=True)
+    ms_numero = models.PositiveIntegerField(unique=True)
+    id_estado_mesa = models.ForeignKey(
+        EstadoMesas, models.DO_NOTHING,
+        db_column='id_estado_mesa',
+        blank=True, null=True
+    )
+
+    class Meta:
+        managed = False
+        db_table = 'mesas'
 
 class Compras(models.Model):
     id_compra = models.AutoField(primary_key=True)
@@ -123,7 +147,13 @@ class Compras(models.Model):
     com_fecha_hora = models.DateTimeField()
     com_monto = models.DecimalField(max_digits=12, decimal_places=2)
     com_descripcion = models.CharField(max_length=200, blank=True, null=True)
-
+    id_proveedor = models.ForeignKey(
+        'Proveedores',
+        models.PROTECT,
+        db_column='id_proveedor',
+        blank=True, null=True,
+        related_name='compras'
+    )
     class Meta:
         managed = False
         db_table = 'compras'
@@ -319,14 +349,8 @@ class Insumos(models.Model):
         db_table = 'insumos'
 
 
-class Mesas(models.Model):
-    id_mesa = models.AutoField(primary_key=True)
-    ms_numero = models.PositiveIntegerField(unique=True)
-    ms_disponible = models.IntegerField()
 
-    class Meta:
-        managed = False
-        db_table = 'mesas'
+
 
 
 class MetodoDePago(models.Model):
@@ -412,6 +436,12 @@ class Recetas(models.Model):
     id_receta = models.AutoField(primary_key=True)
     id_plato = models.OneToOneField(Platos, models.DO_NOTHING, db_column='id_plato')
     rec_desc = models.CharField(max_length=200, blank=True, null=True)
+    id_estado_receta = models.ForeignKey(
+        "EstadoReceta",
+        on_delete=models.PROTECT,
+        db_column="id_estado_receta",
+        default=1,   # por defecto “Activo”
+    )
 
     class Meta:
         managed = False
@@ -448,3 +478,21 @@ class Ventas(models.Model):
     class Meta:
         managed = False
         db_table = 'ventas'
+
+# --- ESTADO RECETA ---
+class EstadoReceta(models.Model):
+    id_estado_receta = models.AutoField(primary_key=True)
+    estrec_nombre = models.CharField(max_length=30, unique=True)
+
+    class Meta:
+        db_table = "estado_receta"
+        verbose_name = "Estado de Receta"
+        verbose_name_plural = "Estados de Receta"
+
+    def __str__(self):
+        return self.estrec_nombre
+
+# --- NUEVO: tabla de estados de mesa ---
+# ── NUEVO catálogo ─────────────────────────────────────────
+
+

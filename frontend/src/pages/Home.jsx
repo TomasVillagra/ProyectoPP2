@@ -184,7 +184,7 @@ const SalesSummary = () => (
       </li>
       <li>
         <span className="legend-dot" style={{ backgroundColor: "#007bff" }}></span>
-        QR<span className="legend-value">$0</span>
+        Transferencia<span className="legend-value">$0</span>
       </li>
     </ul>
   </div>

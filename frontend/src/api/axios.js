@@ -9,7 +9,7 @@ const API_BASE =
 // Instancia principal de axios
 export const api = axios.create({
   baseURL: API_BASE,
-  withCredentials: true, // ✅ Necesario para enviar cookies (sessionid, csrftoken)
+  withCredentials: true, // Necesario para enviar cookies (sessionid, csrftoken)
 });
 
 // 🧩 Interceptor: agrega automáticamente el CSRF token en POST/PUT/DELETE
