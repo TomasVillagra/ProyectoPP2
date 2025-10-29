@@ -6,7 +6,8 @@ from pizzeria.api.views import (
     EstadoPedidoViewSet, MetodoPagoViewSet,
     CargoViewSet, EstadoEmpleadoViewSet,ProveedorViewSet, EstadoProveedorViewSet, CategoriaProveedorViewSet,RecetaViewSet,DetalleRecetaViewSet,
     CategoriaPlatoViewSet,EstadoRecetaViewSet,DetallePedidoViewSet,EstadoCompraViewSet,CompraViewSet,DetalleCompraViewSet,
-    CompraViewSet,DetalleCompraViewSet,ProveedorInsumoViewSet,EstadoMesasViewSet,MesasViewSet
+    CompraViewSet,DetalleCompraViewSet,ProveedorInsumoViewSet,EstadoMesasViewSet,MesasViewSet,
+    EstadoVentaViewSet,DetalleVentaViewSet
 )
 
 router = DefaultRouter()
@@ -16,6 +17,8 @@ router.register(r"insumos", InsumoViewSet, basename="insumos")
 router.register(r"platos", PlatoViewSet, basename="platos")
 router.register(r"pedidos", PedidoViewSet, basename="pedidos")
 router.register(r"ventas", VentaViewSet, basename="ventas")
+router.register(r"estado-ventas", EstadoVentaViewSet, basename="estado-ventas")
+router.register(r"detalle-ventas", DetalleVentaViewSet, basename="detalle-ventas")
 router.register(r"movimientos-caja", MovimientoCajaViewSet, basename="movimientos-caja")
 router.register(r"tipos-pedido", TipoPedidoViewSet, basename="tipos-pedido")
 router.register(r"estados-pedido", EstadoPedidoViewSet, basename="estados-pedido")

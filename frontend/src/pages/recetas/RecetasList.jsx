@@ -3,6 +3,13 @@ import { Link } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 
+function normalizeList(respData) {
+  if (Array.isArray(respData)) return respData;
+  if (respData?.results && Array.isArray(respData.results)) return respData.results;
+  if (respData?.data && Array.isArray(respData.data)) return respData.data;
+  return [];
+}
+
 export default function RecetasList() {
   const [data, setData] = useState([]);
   const [msg, setMsg] = useState("");
@@ -11,7 +18,7 @@ export default function RecetasList() {
   const fetchRecetas = async () => {
     try {
       const { data } = await api.get("/api/recetas/");
-      setData(data || []);
+      setData(normalizeList(data));
     } catch (e) {
       console.error(e);
       setMsg("No se pudo cargar recetas");
@@ -22,9 +29,49 @@ export default function RecetasList() {
 
   useEffect(() => { fetchRecetas(); }, []);
 
+  // ── REGLA 2: no se puede desactivar receta si su plato está en algún pedido
+  const platoEstaEnPedidos = async (idPlato) => {
+    // Intento 1: endpoints comunes de detalle de pedidos
+    const tryEndpoints = [
+      "/api/pedido-detalles/",
+      "/api/detalle-pedidos/",
+      "/api/detalles-pedido/",
+      "/api/pedidos-detalle/",
+    ];
+    for (const ep of tryEndpoints) {
+      try {
+        const { data } = await api.get(ep, { params: { id_plato: Number(idPlato), page_size: 1 } });
+        const list = normalizeList(data);
+        if (Array.isArray(list) && list.length > 0) return true;
+      } catch { /* sigue intentando */ }
+    }
+    // Intento 2 (fallback): traer pedidos y, si la API trae items embebidos, revisar allí
+    try {
+      const { data } = await api.get("/api/pedidos/", { params: { page_size: 1000 } });
+      const pedidos = normalizeList(data);
+      for (const p of pedidos) {
+        const items = p.detalles || p.items || p.lineas || [];
+        if (Array.isArray(items) && items.some(it => Number(it.id_plato ?? it.plato) === Number(idPlato))) {
+          return true;
+        }
+      }
+    } catch {/* noop */}
+    return false;
+    };
+
   const toggleEstado = async (rec) => {
     try {
       const nextEstado = (rec.id_estado_receta === 1 ? 2 : 1);
+
+      // Si vamos a desactivar (2), chequear si el plato está en pedidos
+      if (nextEstado === 2) {
+        const idPlato = rec.id_plato ?? rec?.plato?.id_plato ?? rec?.plato;
+        if (idPlato && await platoEstaEnPedidos(idPlato)) {
+          alert("No se puede desactivar la receta: su plato aparece en uno o más pedidos.");
+          return;
+        }
+      }
+
       await api.patch(`/api/recetas/${rec.id_receta}/`, { id_estado_receta: nextEstado });
       await fetchRecetas();
     } catch (e) {
@@ -95,3 +142,4 @@ const styles = `
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 .btn-danger { background:#ef4444; color:#fff; border-color:#ef4444; }
 `;
+

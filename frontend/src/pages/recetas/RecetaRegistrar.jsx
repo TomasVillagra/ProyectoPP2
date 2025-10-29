@@ -117,6 +117,31 @@ export default function RecetaRegistrar() {
     });
   };
 
+  // ── REGLA 1: un plato no puede tener más de una receta
+  const platoYaTieneReceta = async (platoId) => {
+    try {
+      const { data } = await api.get("/api/recetas/", { params: { id_plato: Number(platoId), page_size: 1 } });
+      const list = normalizeList(data);
+      // Si viene id_plato o estructura embebida, comparamos
+      return list.some(r => {
+        const rp = r.id_plato ?? r?.plato?.id_plato ?? r?.plato;
+        return Number(rp) === Number(platoId);
+      });
+    } catch (e) {
+      // fallback: si tu API no filtra por id_plato, chequeamos todos (limit razonable)
+      try {
+        const all = await api.get("/api/recetas/", { params: { page_size: 1000 } });
+        const list = normalizeList(all.data);
+        return list.some(r => {
+          const rp = r.id_plato ?? r?.plato?.id_plato ?? r?.plato;
+          return Number(rp) === Number(platoId);
+        });
+      } catch {
+        return false;
+      }
+    }
+  };
+
   const onSubmit = async (e) => {
     e.preventDefault();
     setMsg("");
@@ -135,10 +160,16 @@ export default function RecetaRegistrar() {
 
     if (Object.keys(eAll).length || Object.keys(detErrs).length) return;
 
+    // REGLA 1 (crear): si el plato ya tiene receta, alert y cancelar
+    if (await platoYaTieneReceta(form.id_plato)) {
+      alert("Este plato ya tiene una receta. No se puede crear otra.");
+      return;
+    }
+
     try {
-      // 1) Crear receta (incluyendo rec_nombre)
+      // 1) Crear receta
       const createBody = {
-        rec_nombre: form.rec_nombre,           // <— AHORA sí se envía
+        rec_nombre: form.rec_nombre,
         id_plato: Number(form.id_plato),
         rec_desc: form.rec_descripcion,
         id_estado_receta: Number(form.id_estado_receta),
@@ -147,7 +178,7 @@ export default function RecetaRegistrar() {
       const recId = created?.data?.id_receta ?? created?.data?.id ?? null;
       if (!recId) throw new Error("No se obtuvo id de la receta creada");
 
-      // 2) Crear detalles (uno por uno) — compatible aunque tu API no acepte anidados
+      // 2) Crear detalles
       for (const d of detalles) {
         await api.post("/api/detalle-recetas/", {
           id_receta: Number(recId),
@@ -289,4 +320,5 @@ textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 

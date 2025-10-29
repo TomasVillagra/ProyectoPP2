@@ -6,7 +6,7 @@ import Home from "./pages/Home";
 
 // Otras secciones
 
-import VentasPage from "./pages/VentasPage";
+
 import CajaPage from "./pages/CajaPage";
 import InventarioList from "./pages/inventario/InventarioList";
 import InsumoRegistrar from "./pages/inventario/InsumoRegistrar";
@@ -47,6 +47,10 @@ import MesasList from "./pages/mesas/MesasList";
 import MesaRegistrar from "./pages/mesas/MesaRegistrar";
 import MesaEditar from "./pages/mesas/MesaEditar";
 
+import VentasList from "./pages/ventas/VentasList";
+import VentaDetalle from "./pages/ventas/VentaDetalle";
+
+import ComprasDetalle from "./pages/compras/ComprasDetalle";
 export default function App() {
   return (
     <BrowserRouter>
@@ -58,8 +62,9 @@ export default function App() {
         <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
 
         {/* Secciones */}
-      
-        <Route path="/ventas" element={<ProtectedRoute><VentasPage /></ProtectedRoute>} />
+
+        <Route path="/ventas" element={<ProtectedRoute><VentasList /></ProtectedRoute>} />
+        <Route path="/ventas/:id" element={<ProtectedRoute><VentaDetalle /></ProtectedRoute>} />
         <Route path="/caja" element={<ProtectedRoute><CajaPage /></ProtectedRoute>} />
         <Route path="/inventario" element={<ProtectedRoute><InventarioList /></ProtectedRoute>} />
         <Route path="/inventario/registrar" element={<ProtectedRoute><InsumoRegistrar /></ProtectedRoute>} />
@@ -94,6 +99,8 @@ export default function App() {
           <Route path="/compras" element={<ComprasList />} />
           <Route path="/compras/registrar" element={<CompraRegistrar />} />
           <Route path="/compras/editar/:id" element={<CompraEditar />} />
+          <Route path="/compras/detalles/:id" element={<ComprasDetalle />} />
+
 
           <Route path="/mesas" element={<MesasList />} />
           <Route path="/mesas/registrar" element={<MesaRegistrar />} />

@@ -5,8 +5,9 @@
 #   * Make sure each ForeignKey and OneToOneField has `on_delete` set to the desired behavior
 #   * Remove `managed = False` lines if you wish to allow Django to create, modify, and delete the table
 # Feel free to rename the models, but don't rename db_table values or field names.
+from django.conf import settings
 from django.db import models
-
+from django.core.validators import MinValueValidator
 
 class AuthGroup(models.Model):
     name = models.CharField(unique=True, max_length=150)
@@ -134,11 +135,14 @@ class Mesas(models.Model):
         EstadoMesas, models.DO_NOTHING,
         db_column='id_estado_mesa',
         blank=True, null=True
+        
     )
 
     class Meta:
         managed = False
         db_table = 'mesas'
+
+
 
 class Compras(models.Model):
     id_compra = models.AutoField(primary_key=True)
@@ -165,7 +169,7 @@ class DetalleCompra(models.Model):
     id_insumo = models.ForeignKey('Insumos', models.DO_NOTHING, db_column='id_insumo')
     detcom_cantidad = models.DecimalField(max_digits=12, decimal_places=3)
     detcom_precio_uni = models.DecimalField(max_digits=12, decimal_places=3)
-    detcom_subtotal = models.DecimalField(max_digits=12, decimal_places=3, blank=True, null=True)
+    #detcom_subtotal = models.DecimalField(max_digits=12, decimal_places=3, blank=True, null=True)
 
     class Meta:
         managed = False
@@ -256,6 +260,13 @@ class DjangoSession(models.Model):
         db_table = 'django_session'
 
 
+class EstadoEmpleados(models.Model):
+    id_estado_empleado = models.AutoField(primary_key=True)
+    estemp_nombre = models.CharField(unique=True, max_length=50)
+    class Meta:
+        managed = False
+        db_table = 'estado_empleados'
+
 class Empleados(models.Model):
     id_empleado = models.AutoField(primary_key=True)
     id_cargo_emp = models.ForeignKey(CargoEmpleados, models.DO_NOTHING, db_column='id_cargo_emp')
@@ -266,6 +277,14 @@ class Empleados(models.Model):
     emp_correo = models.CharField(max_length=120, blank=True, null=True)
     emp_dni = models.CharField(max_length=20, blank=True, null=True)
 
+    # OneToOne con auth_user a través de la columna existente id_usuario
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        db_column='id_usuario',
+        related_name='empleado'
+    )
     class Meta:
         managed = False
         db_table = 'empleados'
@@ -280,13 +299,7 @@ class EstadoCompra(models.Model):
         db_table = 'estado_compra'
 
 
-class EstadoEmpleados(models.Model):
-    id_estado_empleado = models.AutoField(primary_key=True)
-    estemp_nombre = models.CharField(unique=True, max_length=50)
 
-    class Meta:
-        managed = False
-        db_table = 'estado_empleados'
 
 
 class EstadoInsumos(models.Model):
@@ -425,6 +438,13 @@ class ProveedoresXInsumos(models.Model):
     id_prov_x_ins = models.AutoField(primary_key=True)
     id_proveedor = models.ForeignKey(Proveedores, models.DO_NOTHING, db_column='id_proveedor')
     id_insumo = models.ForeignKey(Insumos, models.DO_NOTHING, db_column='id_insumo')
+    precio_unitario = models.DecimalField(
+        max_digits=12, 
+        decimal_places=3,
+        null=True, blank=True,
+        validators=[MinValueValidator(0)],
+        help_text="Precio unitario acordado para este insumo con el proveedor.",
+    )
 
     class Meta:
         managed = False

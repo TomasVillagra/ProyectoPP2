@@ -3,6 +3,21 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 
+function normalizeList(respData) {
+  if (Array.isArray(respData)) return respData;
+  if (respData?.results && Array.isArray(respData.results)) return respData.results;
+  if (respData?.data && Array.isArray(respData.data)) return respData.data;
+  return [];
+}
+
+// normaliza nombres: minúsculas, sin espacios ni tildes
+const normalizeName = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "");
+
 export default function PlatoRegistrar() {
   const navigate = useNavigate();
   const [categorias, setCategorias] = useState([]);
@@ -21,21 +36,13 @@ export default function PlatoRegistrar() {
       // 1) intento singular
       try {
         const { data } = await api.get("/api/categorias-plato/");
-        const list = Array.isArray(data)
-          ? data
-          : (Array.isArray(data?.results) ? data.results : (Array.isArray(data?.data) ? data.data : []));
-        setCategorias(list);
+        setCategorias(normalizeList(data));
         return;
-      } catch (e) {
-        // sigo abajo y pruebo plural
-      }
+      } catch {}
       // 2) intento plural
       try {
         const { data } = await api.get("/api/categorias-platos/");
-        const list = Array.isArray(data)
-          ? data
-          : (Array.isArray(data?.results) ? data.results : (Array.isArray(data?.data) ? data.data : []));
-        setCategorias(list);
+        setCategorias(normalizeList(data));
       } catch (e2) {
         console.error("No se pudo cargar categorías", e2);
       }
@@ -95,6 +102,33 @@ export default function PlatoRegistrar() {
     return e;
   };
 
+  // Verifica existencia de nombre duplicado (ignora mayúsculas, espacios y tildes)
+  const nombreDuplicado = async (nombre) => {
+    try {
+      // intento 1: buscar todos y filtrar
+      const { data } = await api.get("/api/platos/", { params: { page_size: 1000 } });
+      const list = normalizeList(data);
+      const target = normalizeName(nombre);
+      return list.some((p) => {
+        const n = p.pla_nombre ?? p.plt_nombre ?? p.nombre ?? "";
+        return normalizeName(n) === target;
+      });
+    } catch {
+      // intento 2: search
+      try {
+        const { data } = await api.get("/api/platos/", { params: { search: nombre } });
+        const list = normalizeList(data);
+        const target = normalizeName(nombre);
+        return list.some((p) => {
+          const n = p.pla_nombre ?? p.plt_nombre ?? p.nombre ?? "";
+          return normalizeName(n) === target;
+        });
+      } catch {
+        return false;
+      }
+    }
+  };
+
   const onChange = (e) => {
     const { name } = e.target;
     let { value } = e.target;
@@ -111,6 +145,12 @@ export default function PlatoRegistrar() {
     const eAll = validateAll(form);
     setErrors(eAll);
     if (Object.keys(eAll).length) return;
+
+    // 🔒 nombre único
+    if (await nombreDuplicado(form.pla_nombre)) {
+      alert("Ya existe un plato con ese nombre.");
+      return;
+    }
 
     try {
       await api.post("/api/platos/", {
@@ -188,9 +228,7 @@ export default function PlatoRegistrar() {
             <option value="">-- Seleccioná --</option>
             {categorias.map((c) => {
               const id = c.id_categoria_plato ?? c.id_categoria ?? c.id ?? c.categoria_id;
-              // ⬇️ ahora priorizo catplt_nombre (tu modelo)
-              const nombre =
-                c.catplt_nombre ?? c.categoria_nombre ?? c.cat_nombre ?? c.nombre ?? `#${id}`;
+              const nombre = c.catplt_nombre ?? c.categoria_nombre ?? c.cat_nombre ?? c.nombre ?? `#${id}`;
               return (
                 <option key={id} value={id}>{nombre}</option>
               );
@@ -226,3 +264,4 @@ const styles = `
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+

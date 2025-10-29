@@ -48,7 +48,7 @@ export default function RecetaEditar() {
         // Cabecera (tolerando nombres)
         setForm({
           rec_nombre: data.rec_nombre ?? data.plato_nombre ?? "",
-          id_plato: String(data.id_plato ?? ""),
+          id_plato: String(data.id_plato ?? data?.plato?.id_plato ?? ""),
           rec_descripcion: data.rec_desc ?? data.rec_descripcion ?? "",
           id_estado_receta: String(data.id_estado_receta ?? data.estado ?? "1"),
         });
@@ -147,6 +147,39 @@ export default function RecetaEditar() {
     });
   };
 
+  // ── REGLA: no permitir estado INACTIVO si el plato aparece en pedidos
+  const platoEstaEnPedidos = async (idPlato) => {
+    // Intento 1: endpoints habituales del detalle de pedido filtrando por id_plato
+    const tryEndpoints = [
+      "/api/pedido-detalles/",
+      "/api/detalle-pedidos/",
+      "/api/detalles-pedido/",
+      "/api/pedidos-detalle/",
+    ];
+    for (const ep of tryEndpoints) {
+      try {
+        const { data } = await api.get(ep, { params: { id_plato: Number(idPlato), page_size: 1 } });
+        const list = normalizeList(data);
+        if (Array.isArray(list) && list.length > 0) return true;
+      } catch { /* seguir intentando */ }
+    }
+    // Intento 2: traer pedidos y revisar si embeben items
+    try {
+      const { data } = await api.get("/api/pedidos/", { params: { page_size: 1000 } });
+      const pedidos = normalizeList(data);
+      for (const p of pedidos) {
+        const items = p.detalles || p.items || p.lineas || [];
+        if (Array.isArray(items) && items.some(it => Number(it.id_plato ?? it.plato) === Number(idPlato))) {
+          return true;
+        }
+      }
+    } catch {/* noop */}
+    return false;
+  };
+
+  // ──────────────────────────────────────────────────────────────────
+  // SUBMIT
+  // ──────────────────────────────────────────────────────────────────
   const onSubmit = async (e) => {
     e.preventDefault();
     setMsg("");
@@ -163,10 +196,19 @@ export default function RecetaEditar() {
 
     if (Object.keys(eAll).length || Object.keys(detErrs).length) return;
 
+    // ⛔ Si intento poner INACTIVO (2) y el PLATO está en pedidos -> bloquear
+    if (String(form.id_estado_receta) === "2") {
+      const enPedidos = await platoEstaEnPedidos(form.id_plato);
+      if (enPedidos) {
+        alert("No se puede desactivar la receta: su plato aparece en uno o más pedidos.");
+        return;
+      }
+    }
+
     try {
-      // 1) Actualizar cabecera (incluyendo rec_nombre)
+      // 1) Actualizar cabecera
       const updateBody = {
-        rec_nombre: form.rec_nombre,           // <— AHORA sí se envía
+        rec_nombre: form.rec_nombre,
         id_plato: Number(form.id_plato),
         rec_desc: form.rec_descripcion,
         id_estado_receta: Number(form.id_estado_receta),
@@ -177,15 +219,13 @@ export default function RecetaEditar() {
       try {
         const detRes = await api.get(`/api/detalle-recetas/?id_receta=${id}`);
         const current = normalizeList(detRes.data);
-        // borrar todos
         for (const d of current) {
           const detId = d.id_detalle_receta ?? d.id;
           if (detId) await api.delete(`/api/detalle-recetas/${detId}/`);
         }
       } catch (e2) {
-        // si no se puede listar, seguimos igual (la API puede no exponer filtro)
+        // si no se puede listar, seguimos (puede que tu API no exponga filtro)
       }
-      // crear todos
       for (const d of detalles) {
         await api.post(`/api/detalle-recetas/`, {
           id_receta: Number(id),
@@ -288,7 +328,12 @@ export default function RecetaEditar() {
                       {e.detr_cant_unid && <small className="err-inline">{e.detr_cant_unid}</small>}
                     </td>
                     <td style={{textAlign:"right"}}>
-                      <button type="button" className="btn btn-secondary" onClick={() => removeRow(idx)} disabled={detalles.length === 1}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => removeRow(idx)}
+                        disabled={detalles.length === 1}
+                      >
                         Quitar
                       </button>
                     </td>
@@ -327,4 +372,8 @@ textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
+
+
+
 

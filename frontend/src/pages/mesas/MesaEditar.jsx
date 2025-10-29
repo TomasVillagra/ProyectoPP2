@@ -10,6 +10,16 @@ function normalize(resp) {
   return [];
 }
 
+const isBlockingEstado = (raw) => {
+  const s = String(raw || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
+  // Bloquea si el pedido está "entregado" o "en proceso"
+  return s === "entregado" || s === "en proceso" || s === "en_proceso" || s === "en-proceso";
+};
+
 export default function MesaEditar() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -20,6 +30,7 @@ export default function MesaEditar() {
   });
   const [errors, setErrors] = useState({});
   const [msg, setMsg] = useState("");
+  const [bloqueada, setBloqueada] = useState(false); // BLOQUEA si tiene pedido Entregado/En proceso
 
   useEffect(() => {
     api.get("/api/estados-mesa/").then(({data}) => setEstados(normalize(data))).catch(()=>{});
@@ -34,6 +45,19 @@ export default function MesaEditar() {
       console.error(e);
       setMsg("No se pudo cargar la mesa.");
     });
+
+    // Bloquear si hay pedido en estado Entregado o En proceso
+    api.get("/api/pedidos/", { params: { page_size: 1000 } })
+      .then(({data}) => {
+        const list = normalize(data);
+        const hasBlocking = list.some((p) => {
+          const estado = p?.estado_nombre ?? p?.id_estado_pedido?.estp_nombre ?? p?.estado ?? "";
+          const idMesa = p?.id_mesa?.id_mesa ?? p?.id_mesa ?? null;
+          return Number(idMesa) === Number(id) && isBlockingEstado(estado);
+        });
+        setBloqueada(hasBlocking);
+      })
+      .catch(() => {});
   }, [id]);
 
   const sanitizeInt = (raw) => (raw ?? "").toString().replace(/[^\d]/g, "");
@@ -75,6 +99,7 @@ export default function MesaEditar() {
     });
     setErrors(eAll);
     if (Object.keys(eAll).length) return;
+    if (bloqueada) return; // seguridad en front
 
     try {
       await api.put(`/api/mesas/${id}/`, {
@@ -85,13 +110,18 @@ export default function MesaEditar() {
       setTimeout(() => navigate("/mesas"), 700);
     } catch (err) {
       console.error(err);
-      setMsg("No se pudo actualizar la mesa.");
+      setMsg("No se pudo actualizar la mesa.(Numero de mesa ya existente)");
     }
   };
 
   return (
     <DashboardLayout>
       <h2 style={{margin:0, marginBottom:12}}>Editar Mesa</h2>
+      {bloqueada && (
+        <p style={{ color:"#facc15", marginBottom:12 }}>
+          Esta mesa tiene un pedido <strong>Entregado/En proceso</strong>: no se puede editar.
+        </p>
+      )}
       {msg && <p>{msg}</p>}
 
       <form onSubmit={onSubmit} className="form">
@@ -106,6 +136,7 @@ export default function MesaEditar() {
             onChange={onChange}
             onKeyDown={blockInvalidInt}
             required
+            disabled={bloqueada}
           />
         </div>
         {errors.ms_numero && <small className="err">{errors.ms_numero}</small>}
@@ -118,6 +149,7 @@ export default function MesaEditar() {
             value={form.id_estado_mesa}
             onChange={onChange}
             required
+            disabled={bloqueada}
           >
             <option value="">-- Seleccioná --</option>
             {estados.map(e => (
@@ -128,8 +160,12 @@ export default function MesaEditar() {
         {errors.id_estado_mesa && <small className="err">{errors.id_estado_mesa}</small>}
 
         <div>
-          <button type="submit" className="btn btn-primary">Guardar cambios</button>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate("/mesas")} style={{marginLeft:10}}>Cancelar</button>
+          <button type="submit" className="btn btn-primary" disabled={bloqueada}>
+            Guardar cambios
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => navigate("/mesas")} style={{marginLeft:10}}>
+            Volver
+          </button>
         </div>
       </form>
 
@@ -146,4 +182,6 @@ const styles = `
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
+
 

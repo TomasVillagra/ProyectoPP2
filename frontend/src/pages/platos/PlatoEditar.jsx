@@ -3,6 +3,49 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 
+function normalizeList(respData) {
+  if (Array.isArray(respData)) return respData;
+  if (respData?.results && Array.isArray(respData.results)) return respData.results;
+  if (respData?.data && Array.isArray(respData.data)) return respData.data;
+  return [];
+}
+
+const normalizeName = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "");
+
+// intenta detectar si el plato aparece en pedidos
+async function platoEstaEnPedidos(idPlato) {
+  const tryEndpoints = [
+    "/api/pedido-detalles/",
+    "/api/detalle-pedidos/",
+    "/api/detalles-pedido/",
+    "/api/pedidos-detalle/",
+  ];
+  for (const ep of tryEndpoints) {
+    try {
+      const { data } = await api.get(ep, { params: { id_plato: Number(idPlato), page_size: 1 } });
+      const list = normalizeList(data);
+      if (list.length > 0) return true;
+    } catch {}
+  }
+  // fallback: recorrer pedidos e items embebidos
+  try {
+    const { data } = await api.get("/api/pedidos/", { params: { page_size: 1000 } });
+    const pedidos = normalizeList(data);
+    for (const p of pedidos) {
+      const items = p.detalles || p.items || p.lineas || [];
+      if (Array.isArray(items) && items.some((it) => Number(it.id_plato ?? it.plato) === Number(idPlato))) {
+        return true;
+      }
+    }
+  } catch {}
+  return false;
+}
+
 export default function PlatoEditar() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -22,18 +65,12 @@ export default function PlatoEditar() {
       // 1) singular
       try {
         const { data } = await api.get("/api/categorias-plato/");
-        const list = Array.isArray(data)
-          ? data
-          : (Array.isArray(data?.results) ? data.results : (Array.isArray(data?.data) ? data.data : []));
-        setCategorias(list);
-      } catch (e) {
+        setCategorias(normalizeList(data));
+      } catch {
         // 2) plural
         try {
           const { data } = await api.get("/api/categorias-platos/");
-          const list = Array.isArray(data)
-            ? data
-            : (Array.isArray(data?.results) ? data.results : (Array.isArray(data?.data) ? data.data : []));
-          setCategorias(list);
+          setCategorias(normalizeList(data));
         } catch (e2) {
           console.error("No se pudo cargar categorías", e2);
         }
@@ -114,6 +151,33 @@ export default function PlatoEditar() {
     setErrors((p) => ({ ...p, [name]: validateField(name, value) }));
   };
 
+  // Nombre duplicado (excluyendo el propio plato)
+  const nombreDuplicado = async (nombre, selfId) => {
+    try {
+      const { data } = await api.get("/api/platos/", { params: { page_size: 1000 } });
+      const list = normalizeList(data);
+      const target = normalizeName(nombre);
+      return list.some((p) => {
+        const pid = p.id_plato ?? p.id;
+        const n = p.pla_nombre ?? p.plt_nombre ?? p.nombre ?? "";
+        return Number(pid) !== Number(selfId) && normalizeName(n) === target;
+      });
+    } catch {
+      try {
+        const { data } = await api.get("/api/platos/", { params: { search: nombre } });
+        const list = normalizeList(data);
+        const target = normalizeName(nombre);
+        return list.some((p) => {
+          const pid = p.id_plato ?? p.id;
+          const n = p.pla_nombre ?? p.plt_nombre ?? p.nombre ?? "";
+          return Number(pid) !== Number(selfId) && normalizeName(n) === target;
+        });
+      } catch {
+        return false;
+      }
+    }
+  };
+
   const onSubmit = async (e) => {
     e.preventDefault();
     setMsg("");
@@ -125,6 +189,21 @@ export default function PlatoEditar() {
     });
     setErrors(eAll);
     if (Object.keys(eAll).length) return;
+
+    // 🔒 nombre único
+    if (await nombreDuplicado(form.pla_nombre, id)) {
+      alert("Ya existe un plato con ese nombre.");
+      return;
+    }
+
+    // ⛔ bloqueo de desactivación si está en pedidos
+    if (String(form.id_estado_plato) === "2") {
+      const enPedidos = await platoEstaEnPedidos(id);
+      if (enPedidos) {
+        alert("No se puede desactivar el plato: está asociado a uno o más pedidos.");
+        return;
+      }
+    }
 
     try {
       await api.put(`/api/platos/${id}/`, {
@@ -189,12 +268,10 @@ export default function PlatoEditar() {
           >
             <option value="">-- Seleccioná --</option>
             {categorias.map((c) => {
-              const id = c.id_categoria_plato ?? c.id_categoria ?? c.id ?? c.categoria_id;
-              // ⬇️ ahora priorizo catplt_nombre (tu modelo)
-              const nombre =
-                c.catplt_nombre ?? c.categoria_nombre ?? c.cat_nombre ?? c.nombre ?? `#${id}`;
+              const idc = c.id_categoria_plato ?? c.id_categoria ?? c.id ?? c.categoria_id;
+              const nombre = c.catplt_nombre ?? c.categoria_nombre ?? c.cat_nombre ?? c.nombre ?? `#${idc}`;
               return (
-                <option key={id} value={id}>{nombre}</option>
+                <option key={idc} value={idc}>{nombre}</option>
               );
             })}
           </select>
@@ -228,4 +305,5 @@ const styles = `
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 

@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.core.validators import MinValueValidator
 from django.contrib.auth.models import User
 from pizzeria.models import (
     Empleados, Clientes, Insumos, Platos, Pedidos,
@@ -7,7 +8,7 @@ from pizzeria.models import (
     # ─── NUEVO: modelos de proveedores ────────────────────────────────────────
     Proveedores, EstadoProveedores, CategoriaProveedores,Recetas,DetalleRecetas,CategoriaPlatos,
     EstadoReceta,DetallePedidos,Mesas,EstadoCompra,DetalleCompra,Compras,ProveedoresXInsumos,
-    EstadoMesas
+    EstadoMesas,EstadoVentas,DetalleVentas
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -42,63 +43,61 @@ class CategoriaProveedorSerializer(serializers.ModelSerializer):
 # Empleados
 # ──────────────────────────────────────────────────────────────────────────────
 class EmpleadosSerializer(serializers.ModelSerializer):
-    # Opcionales para crear el User (login) a la vez
-    username = serializers.CharField(write_only=True, required=False, allow_blank=True)
-    password = serializers.CharField(write_only=True, required=False, allow_blank=True, min_length=4)
-
-    # Devolver nombre de FK en la respuesta (solo lectura)
     cargo_nombre = serializers.SerializerMethodField(read_only=True)
     estado_nombre = serializers.SerializerMethodField(read_only=True)
+
+    # opcional: crear user y vincular
+    username = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True, min_length=4)
 
     class Meta:
         model = Empleados
         fields = [
-            # DB fields
-            "id_empleado",
-            "id_cargo_emp",
-            "id_estado_empleado",
-            "emp_nombre",
-            "emp_apellido",
-            "emp_tel",
-            "emp_correo",
-            "emp_dni",
-            # write-only (para crear User de login)
-            "username",
-            "password",
-            # read-only decorativos
-            "cargo_nombre",
-            "estado_nombre",
+            "id_empleado", "id_cargo_emp", "id_estado_empleado",
+            "emp_nombre", "emp_apellido", "emp_tel", "emp_correo", "emp_dni",
+            "cargo_nombre", "estado_nombre",
+            "username", "password",
         ]
 
     def get_cargo_nombre(self, obj):
-        try:
-            return obj.id_cargo_emp.carg_nombre
-        except Exception:
+        cargo = getattr(obj, "id_cargo_emp", None)
+        if not cargo:
             return None
+        return getattr(cargo, "carg_nombre", None) or str(cargo)
 
     def get_estado_nombre(self, obj):
-        try:
-            return obj.id_estado_empleado.estemp_nombre
-        except Exception:
+        est = getattr(obj, "id_estado_empleado", None)
+        if not est:
             return None
+        return getattr(est, "estemp_nombre", None) or str(est)
+
+    def validate_username(self, v):
+        v = (v or "").strip()
+        if v and User.objects.filter(username__iexact=v).exists():
+            raise serializers.ValidationError("El nombre de usuario ya existe.")
+        return v
 
     def create(self, validated_data):
-        username = validated_data.pop('username', '').strip()
-        password = validated_data.pop('password', '').strip()
-        cargo = validated_data.get('id_cargo_emp')
-
+        username = (validated_data.pop("username", "") or "").strip()
+        password = (validated_data.pop("password", "") or "").strip()
         empleado = Empleados.objects.create(**validated_data)
 
         if username:
-            user, _ = User.objects.get_or_create(username=username)
+            user = User.objects.create_user(username=username)
             if password:
                 user.set_password(password)
-            if cargo and cargo.id_cargo_emp == 5:  # cargo = Administrador
-                user.is_staff = True
-                user.is_superuser = True
+            if getattr(empleado, "emp_correo", None):
+                user.email = empleado.emp_correo
             user.save()
+            empleado.usuario = user
+            empleado.save(update_fields=["usuario"])
 
         return empleado
+
+    def update(self, instance, validated_data):
+        validated_data.pop("username", None)
+        validated_data.pop("password", None)
+        return super().update(instance, validated_data)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -181,12 +180,30 @@ class PlatoSerializer(serializers.ModelSerializer):
             return None
 
 
-
+# --- Estados de Venta (catálogo para selects) ---
+class EstadoVentaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EstadoVentas
+        fields = ["id_estado_venta", "estven_nombre"]
 
 class VentaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ventas
         fields = "__all__"
+
+# --- Detalle de Venta ---
+class DetalleVentaSerializer(serializers.ModelSerializer):
+    detven_subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    class Meta:
+        model = DetalleVentas
+        fields = [
+            "id_detalle_venta",
+            "id_venta",
+            "id_plato",
+            "detven_precio_uni",
+            "detven_cantidad",
+            "detven_subtotal",  # read_only
+        ]
 
 class MovimientoCajaSerializer(serializers.ModelSerializer):
     class Meta:
@@ -458,7 +475,11 @@ class EstadoCompraSerializer(serializers.ModelSerializer):
 
 
 # --- Detalle de Compra ---
+# --- Detalle de Compra ---
+# --- Detalle de Compra ---
 class DetalleCompraSerializer(serializers.ModelSerializer):
+    # Mostrar subtotal como cálculo (read-only). La BD también lo calcula, pero el ORM no lo inserta.
+    detcom_subtotal = serializers.SerializerMethodField(read_only=True)
     insumo_nombre = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -469,15 +490,24 @@ class DetalleCompraSerializer(serializers.ModelSerializer):
             "id_insumo",
             "detcom_cantidad",
             "detcom_precio_uni",
-            "detcom_subtotal",
+            "detcom_subtotal",   # ← ahora es method field
             "insumo_nombre",
         ]
+
+    def get_detcom_subtotal(self, obj):
+        try:
+          # cálculo seguro en Python (coincide con la columna GENERATED)
+          return (obj.detcom_cantidad or 0) * (obj.detcom_precio_uni or 0)
+        except Exception:
+          return None
 
     def get_insumo_nombre(self, obj):
         try:
             return obj.id_insumo.ins_nombre
         except Exception:
             return None
+
+
 
 
 # --- Compra (con campos bonitos y detalles en solo-lectura) ---
@@ -529,6 +559,14 @@ class ProveedorInsumoSerializer(serializers.ModelSerializer):
     id_proveedor = serializers.PrimaryKeyRelatedField(queryset=Proveedores.objects.all())
     id_insumo    = serializers.PrimaryKeyRelatedField(queryset=Insumos.objects.all())
 
+    # precio_unitario: 3 decimales para matchear el modelo (DECIMAL(12,3))
+    precio_unitario = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        required=False,   # obligatorio solo en create (lo validamos abajo)
+        allow_null=True
+    )
+
     # Lecturas “bonitas”
     proveedor_nombre = serializers.SerializerMethodField(read_only=True)
     insumo_nombre    = serializers.SerializerMethodField(read_only=True)
@@ -540,12 +578,14 @@ class ProveedorInsumoSerializer(serializers.ModelSerializer):
             "id_prov_x_ins",
             "id_proveedor",
             "id_insumo",
+            "precio_unitario",
             # solo lectura
             "proveedor_nombre",
             "insumo_nombre",
             "insumo_unidad",
         ]
 
+    # ------- GETTERS DE SOLO LECTURA -------
     def get_proveedor_nombre(self, obj):
         try:
             return obj.id_proveedor.prov_nombre
@@ -564,10 +604,33 @@ class ProveedorInsumoSerializer(serializers.ModelSerializer):
         except Exception:
             return None
 
+    # ------- VALIDACIONES -------
+    def validate_precio_unitario(self, v):
+        if v is not None and v < 0:
+            raise serializers.ValidationError("El precio unitario no puede ser negativo.")
+        return v
+
     def validate(self, attrs):
-        # Evitar duplicados por unique_together (id_proveedor, id_insumo)
-        prov = attrs.get("id_proveedor")
-        ins  = attrs.get("id_insumo")
-        if ProveedoresXInsumos.objects.filter(id_proveedor=prov, id_insumo=ins).exists():
-            raise serializers.ValidationError("Ese insumo ya está vinculado a este proveedor.")
+        """
+        - Evita duplicados por unique_together (id_proveedor, id_insumo).
+        - En creación (self.instance is None), exige precio_unitario.
+        - En actualización, permite omitir precio_unitario.
+        """
+        prov = attrs.get("id_proveedor", getattr(getattr(self, "instance", None), "id_proveedor", None))
+        ins  = attrs.get("id_insumo",    getattr(getattr(self, "instance", None), "id_insumo", None))
+
+        # Duplicados (soporta create y update)
+        if prov and ins:
+            qs = ProveedoresXInsumos.objects.filter(id_proveedor=prov, id_insumo=ins)
+            if self.instance is not None:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError("Ese insumo ya está vinculado a este proveedor.")
+
+        # Requerir precio en CREATE
+        if self.instance is None:
+            # En create el valor puede venir en attrs; si no está, es error
+            if attrs.get("precio_unitario", None) is None:
+                raise serializers.ValidationError({"precio_unitario": "El precio es obligatorio al vincular."})
+
         return attrs

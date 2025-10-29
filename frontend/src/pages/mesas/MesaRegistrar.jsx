@@ -72,7 +72,7 @@ export default function MesaRegistrar() {
       setTimeout(() => navigate("/mesas"), 700);
     } catch (err) {
       console.error(err);
-      setMsg("No se pudo crear la mesa (¿número ya existente?).");
+      setMsg("No se pudo crear la mesa (número ya existente).");
     }
   };
 

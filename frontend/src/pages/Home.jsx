@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/axios";
-import ConfirmDialog from "../components/ConfirmDialog";
 import DashboardLayout from "../components/layout/DashboardLayout";
 import { FaClock, FaDollarSign, FaExclamationTriangle, FaStore } from 'react-icons/fa';
 
@@ -39,7 +38,6 @@ async function fetchAllInsumos(apiInstance) {
 
 export default function Home() {
   const [me, setMe] = useState(null);
-  const [showConfirm, setShowConfirm] = useState(false);
   const [stats, setStats] = useState({ ventas_hoy: 0, pedidos: 0, stock_bajo: 0 });
 
   useEffect(() => {
@@ -95,30 +93,11 @@ export default function Home() {
     })();
   }, []);
 
-  const doLogout = async () => {
-    try {
-      await api.post("/api/auth/logout/");
-    } catch {}
-    window.location.href = "/login";
-  };
+  
 
   return (
     <DashboardLayout
-      topRight={
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-          {me?.cargo_nombre && (
-            <span style={{ fontSize: 13, color: "#bcbcbc", marginBottom: 4 }}>
-              Rol: <strong style={{ color: "#fff" }}>{me.cargo_nombre}</strong>
-            </span>
-          )}
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ color: "#eaeaea" }}>Bienvenido, {me?.username || "usuario"}</span>
-            <button onClick={() => setShowConfirm(true)} style={btnOutline}>
-              Cerrar sesión
-            </button>
-          </div>
-        </div>
-      }
+      
     >
       <div className="dashboard-page-dark">
         <section className="stat-cards-container">
@@ -145,13 +124,7 @@ export default function Home() {
         </section>
       </div>
 
-      <ConfirmDialog
-        open={showConfirm}
-        title="Confirmar cierre de sesión"
-        message="¿Estás seguro que quieres cerrar sesión?"
-        onCancel={() => setShowConfirm(false)}
-        onConfirm={doLogout}
-      />
+      
 
       <style>{styles}</style>
     </DashboardLayout>

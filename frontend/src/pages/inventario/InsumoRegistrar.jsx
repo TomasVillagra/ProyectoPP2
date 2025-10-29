@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 
@@ -10,7 +10,10 @@ const UNIDADES = ["u", "kg", "g", "l", "ml"];
 const normalizeName = (s) => (s || "").toLowerCase().replace(/\s+/g, "");
 
 export default function InsumoRegistrar() {
+  const location = useLocation();                          // ← NUEVO
   const navigate = useNavigate();
+  const backTo = location.state?.backTo || null;           // ← NUEVO
+
   const [msg, setMsg] = useState("");
   const [form, setForm] = useState({
     ins_nombre: "",
@@ -114,7 +117,15 @@ export default function InsumoRegistrar() {
         ins_stock_max: form.ins_stock_max === "" ? null : Number(form.ins_stock_max),
       });
       setMsg("Insumo creado correctamente ✅");
-      setTimeout(() => navigate("/inventario"), 1200);
+
+      // 🔙 NUEVO: volver donde estabas si hay backTo; si no, al inventario
+      setTimeout(() => {
+        if (backTo) {
+          navigate(backTo, { replace: true, state: { flash: "Insumo creado correctamente ✅" } });
+        } else {
+          navigate("/inventario", { replace: true });
+        }
+      }, 800);
     } catch (err) {
       console.error(err);
       setMsg(err?.response?.data?.detail || "Error al registrar insumo");
@@ -201,7 +212,16 @@ export default function InsumoRegistrar() {
 
           <div className="form-actions">
             <button type="submit" className="btn btn-primary">Registrar insumo</button>
-            <button type="button" className="btn btn-secondary" onClick={() => navigate("/inventario")}>Cancelar</button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                if (backTo) navigate(backTo, { replace: true });
+                else navigate("/inventario");
+              }}
+            >
+              Cancelar
+            </button>
           </div>
         </form>
       </div>
@@ -288,4 +308,5 @@ const formStyles = `
     background-color: #4a4a4e;
   }
 `;
+
 

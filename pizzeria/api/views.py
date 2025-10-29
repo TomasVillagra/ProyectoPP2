@@ -1,9 +1,13 @@
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
+from decimal import Decimal
+from django.utils import timezone
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework import status
 from django.db import transaction
 from django.db.models import F
+from django.db import connection
 
 from pizzeria.models import (
     Empleados, Clientes, Insumos, Platos, Pedidos,
@@ -11,7 +15,8 @@ from pizzeria.models import (
     CargoEmpleados, EstadoEmpleados,
     Proveedores, EstadoProveedores, CategoriaProveedores,
     Recetas, DetalleRecetas, CategoriaPlatos, EstadoReceta,
-    DetallePedidos, Mesas, EstadoCompra, DetalleCompra, Compras,ProveedoresXInsumos,EstadoMesas
+    DetallePedidos, Mesas, EstadoCompra, DetalleCompra, Compras,ProveedoresXInsumos,EstadoMesas,
+    EstadoVentas,DetalleVentas
 )
 
 from .serializers import (
@@ -23,7 +28,7 @@ from .serializers import (
     RecetaSerializer, DetalleRecetaSerializer, CategoriaPlatoSerializer,
     EstadoRecetaSerializer, DetallePedidoSerializer,EstadoCompraSerializer,
     CompraSerializer,DetalleCompraSerializer,ProveedorInsumoSerializer,MesasSerializer,
-    EstadoMesasSerializer,
+    EstadoMesasSerializer,EstadoVentaSerializer,DetalleVentaSerializer,
 
 )
 
@@ -66,41 +71,27 @@ class EmpleadosViewSet(ModelViewSet):
     # GET /api/empleados/me/
     @action(detail=False, methods=["get"], url_path="me", permission_classes=[IsAuthenticated])
     def me(self, request):
-        user = request.user
-        emp = None
-
-        # Intentos de vinculación comunes (ajustá si tu modelo usa otra FK)
-        try_fk_fields = ["usuario", "user", "id_usuario", "id_user", "emp_usuario"]
-        field_names = {f.name for f in Empleados._meta.get_fields()}
-
-        for fname in try_fk_fields:
-            if fname in field_names:
-                try:
-                    emp = Empleados.objects.filter(**{fname: user}).first()
-                except Exception:
-                    emp = None
-                if emp:
-                    break
-
-        # Fallback por email/username si no hay FK directa
-        if not emp:
-            u_email = getattr(user, "email", None)
-            u_username = getattr(user, "username", None)
-            if u_email and "emp_email" in field_names:
-                emp = Empleados.objects.filter(emp_email__iexact=u_email).first()
-            if not emp and u_email and "emp_correo" in field_names:
-                emp = Empleados.objects.filter(emp_correo__iexact=u_email).first()
-            if not emp and u_username and "emp_nombre" in field_names:
-                emp = Empleados.objects.filter(emp_nombre__iexact=u_username).first()
-
-        if not emp:
-            return Response(
-                {"detail": "No se encontró empleado asociado al usuario actual."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
+        try:
+            emp = Empleados.objects.get(usuario=request.user)
+        except Empleados.DoesNotExist:
+            return Response({"detail": "No hay un empleado vinculado a este usuario."}, status=status.HTTP_404_NOT_FOUND)
         return Response(EmpleadosSerializer(emp).data)
 
+    # POST /api/empleados/vincular/  { "id_empleado": 123 }
+    @action(detail=False, methods=["post"], url_path="vincular", permission_classes=[IsAuthenticated])
+    def vincular(self, request):
+        emp_id = request.data.get("id_empleado")
+        if not emp_id:
+            return Response({"detail": "id_empleado es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            emp = Empleados.objects.get(pk=emp_id)
+        except Empleados.DoesNotExist:
+            return Response({"detail": "Empleado no existe."}, status=status.HTTP_404_NOT_FOUND)
+
+        Empleados.objects.filter(usuario=request.user).exclude(pk=emp.pk).update(usuario=None)
+        emp.usuario = request.user
+        emp.save(update_fields=["usuario"])
+        return Response({"detail": "Vinculado correctamente."}, status=status.HTTP_200_OK)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Proveedores
@@ -257,12 +248,129 @@ class PedidoViewSet(ModelViewSet):
                     })
 
         return Response({"ok": True, "movimientos": movimientos})
+    
+    @action(detail=True, methods=["post"], url_path="generar_venta")
+    def generar_venta(self, request, pk=None):
+
+    # 1) Pedido
+        try:
+            pedido = self.get_object()
+        except Exception:
+            return Response({"detail": "Pedido no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not getattr(pedido, "id_cliente_id", None):
+            return Response({"detail": "El pedido no tiene cliente asignado."}, status=status.HTTP_400_BAD_REQUEST)
+        if not getattr(pedido, "id_empleado_id", None):
+            return Response({"detail": "El pedido no tiene empleado asignado."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2) Detalles del pedido
+        detalles = DetallePedidos.objects.filter(id_pedido_id=pedido.id_pedido)
+        if not detalles.exists():
+            return Response({"detail": "El pedido no tiene detalles."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3) Estado de venta Pendiente
+        estado_pendiente, _ = EstadoVentas.objects.get_or_create(estven_nombre="Pendiente")
+
+        # 4) Transacción
+        with transaction.atomic():
+            total = Decimal("0")
+            items = []
+
+            # Nota: evitamos select_for_update para compatibilidad y usamos d.id_plato_id directo
+            for d in detalles:
+                # plato y precio
+                plato = None
+                if hasattr(d, "id_plato") and d.id_plato is not None:
+                    plato = d.id_plato  # FK ya cargada
+                else:
+                    plato = Platos.objects.get(pk=d.id_plato_id)
+
+                precio = Decimal(str(plato.plt_precio or 0))
+                cantidad = Decimal(str(d.detped_cantidad or 0))
+                if cantidad <= 0:
+                    return Response(
+                        {"detail": f"Cantidad inválida en detalle {d.pk}: {cantidad}."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                subtotal = (precio * cantidad).quantize(Decimal("0.01"))
+                total += subtotal
+
+                # ⚠️ NO incluir detven_subtotal (lo calcula MySQL)
+                items.append({
+                    "id_plato_id": plato.id_plato,
+                    "detven_precio_uni": precio,
+                    "detven_cantidad": int(cantidad),  # IntegerField
+                })
+
+            # 5) Cabecera de venta
+            venta = Ventas.objects.create(
+                id_cliente_id=pedido.id_cliente_id,
+                id_empleado_id=pedido.id_empleado_id,
+                id_estado_venta_id=estado_pendiente.id_estado_venta,
+                ven_fecha_hora=pedido.ped_fecha_hora_fin or pedido.ped_fecha_hora_ini or timezone.now(),
+                ven_monto=total.quantize(Decimal("0.01")),
+                ven_descripcion=f"Venta generada automáticamente del pedido #{pedido.id_pedido}",
+            )
+
+            # 6) Detalles de venta (sin detven_subtotal: lo genera MySQL)
+            tabla = DetalleVentas._meta.db_table  # debería ser 'detalle_ventas'
+            sql = f"""
+                INSERT INTO {tabla} (id_venta, id_plato, detven_precio_uni, detven_cantidad)
+                VALUES (%s, %s, %s, %s)
+            """
+            params = [
+                (
+                    venta.id_venta,
+                    item["id_plato_id"],
+                    item["detven_precio_uni"],
+                    item["detven_cantidad"],
+                )
+                for item in items
+            ]
+
+            with connection.cursor() as cursor:
+                cursor.executemany(sql, params)
+
+            # Opcional: si querés devolver cabecera + detalles
+            data = VentaSerializer(venta).data
+            data["detalles"] = DetalleVentaSerializer(
+            DetalleVentas.objects.filter(id_venta_id=venta.id_venta), many=True
+                ).data
+
+            return Response(data, status=status.HTTP_201_CREATED)
+
+# Estados de venta (catálogo)
+class EstadoVentaViewSet(ReadOnlyModelViewSet):
+    queryset = EstadoVentas.objects.all().order_by("id_estado_venta")
+    serializer_class = EstadoVentaSerializer
+    permission_classes = [IsAuthenticated]
 
 
 class VentaViewSet(ModelViewSet):
     queryset = Ventas.objects.all().order_by("-id_venta")
     serializer_class = VentaSerializer
     permission_classes = [IsAuthenticated]
+
+# Detalle de venta
+class DetalleVentaViewSet(ModelViewSet):
+    queryset = (
+        DetalleVentas.objects
+        .select_related("id_venta", "id_plato")
+        .all()
+        .order_by("-id_detalle_venta")
+    )
+    serializer_class = DetalleVentaSerializer
+    permission_classes = [IsAuthenticated]
+
+    # Permitir ?id_venta=<id> para listar/editar por cabecera
+    def get_queryset(self):
+        qs = super().get_queryset()
+        id_venta = self.request.query_params.get("id_venta")
+        if id_venta:
+            qs = qs.filter(id_venta_id=id_venta)
+        return qs
+    
 
 class MovimientoCajaViewSet(ModelViewSet):
     queryset = MovimientosCaja.objects.all().order_by("-id_movimiento_caja")

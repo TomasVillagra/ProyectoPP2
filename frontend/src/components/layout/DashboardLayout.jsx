@@ -1,3 +1,4 @@
+// src/components/layout/DashboardLayout.jsx
 import { NavLink } from "react-router-dom";
 import { useMemo, useEffect, useState } from "react";
 import { api } from "../../api/axios";
@@ -10,115 +11,96 @@ const norm = (s) =>
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
-// ... (Las funciones 'isAdminUser' y 'fetchUserWithCargo' se mantienen exactamente igual)
+
+// ─────────────────────────────────────────────────────────
+// Misma lógica de admin + fetch de “me” que venías usando
+// ─────────────────────────────────────────────────────────
 const isAdminUser = (u) => {
   if (!u) return false;
-  const idCargo = Number(u.id_cargo_emp ?? u.cargo_id ?? u.cargo?.id ?? u.cargo?.id_cargo_emp);
-  const nombreCargo = String(u.cargo_nombre ?? u.cargo?.nombre ?? u.cargo?.carg_nombre ?? "").toLowerCase();
-  return (
-    u.is_superuser === true ||
-    u.is_staff === true ||
-    idCargo === 5 ||
-    nombreCargo === "Administrador"
-  );
+  const nombreCargo = norm(u.cargo_nombre);
+  const idCargo = Number(u.id_cargo_emp ?? 0);
+  return nombreCargo === "administrador" || idCargo === 5 || u.is_superuser === true || u.is_staff === true;
 };
 
-// ✅ Obtiene el usuario + cargo sin asumir que username = emp_nombre
 async function fetchUserWithCargo() {
-  // 1) info básica del auth
-  const { data: me } = await api.get("/api/auth/me/");
-  let meFull = { ...me };
-
-  // si ya viene el cargo, devolvémoslo
-  if (
-    meFull.id_cargo_emp != null ||
-    meFull.cargo_nombre != null ||
-    meFull.cargo?.id != null
-  ) {
-    return meFull;
-  }
-
-  const loginUser = (me?.username || "").trim();
-  if (!loginUser) return meFull;
-
-  // función que intenta mapear un registro de empleado al auth user
-  const matchByLogin = (emp) => {
-    const candidates = [
-      emp?.username,                     // si el empleado tiene username propio
-      emp?.user?.username,               // si está enlazado a un User de Django
-      (emp?.emp_correo || "").split("@")[0], // local-part del correo
-      emp?.emp_nombre,                   // por si lo usaste como username
-    ]
-      .filter(Boolean)
-      .map((s) =>
-        String(s)
-          .trim()
-          .normalize("NFD")
-          .replace(/\p{Diacritic}/gu, "")
-          .toLowerCase()
-      );
-
-    const normLogin = String(loginUser)
-      .trim()
-      .normalize("NFD")
-      .replace(/\p{Diacritic}/gu, "")
-      .toLowerCase();
-
-    return candidates.includes(normLogin);
+  // Simplificado a /api/empleados/me/
+  const { data: emp } = await api.get("/api/empleados/me/");
+  return {
+    username: emp.emp_nombre || emp.emp_apellido || emp.emp_correo || "Usuario",
+    id_cargo_emp: emp.id_cargo_emp,
+    cargo_nombre: emp.cargo_nombre ?? null,
+    is_staff: emp.is_staff ?? false,
+    is_superuser: emp.is_superuser ?? false,
+    ...emp,
   };
-
-  // helper para traer cargo al objeto meFull
-  const pick = (emp) => ({
-    ...meFull,
-    id_cargo_emp:
-      emp.id_cargo_emp ?? emp.cargo?.id ?? emp.cargo?.id_cargo_emp ?? null,
-    cargo_nombre:
-      emp.cargo_nombre ?? emp.cargo?.carg_nombre ?? emp.cargo?.nombre ?? null,
-    cargo: emp.cargo ?? meFull.cargo ?? null,
-  });
-
-  // 2) /api/empleados/me/ (si existe)
-  try {
-    const { data } = await api.get("/api/empleados/me/");
-    const emp = Array.isArray(data?.results) ? data.results[0] : data;
-    if (emp && matchByLogin(emp)) return pick(emp);
-  } catch (_) {}
-
-  // 3) /api/empleados/?username=
-  try {
-    const { data } = await api.get(
-      `/api/empleados/?username=${encodeURIComponent(loginUser)}`
-    );
-    const list = Array.isArray(data?.results)
-      ? data.results
-      : Array.isArray(data)
-      ? data
-      : [];
-    const emp = list.find(matchByLogin);
-    if (emp) return pick(emp);
-  } catch (_) {}
-
-  // 4) /api/empleados/?search=
-  try {
-    const { data } = await api.get(
-      `/api/empleados/?search=${encodeURIComponent(loginUser)}`
-    );
-    const list = Array.isArray(data?.results)
-      ? data.results
-      : Array.isArray(data)
-      ? data
-      : [];
-    const emp = list.find(matchByLogin);
-    if (emp) return pick(emp);
-  } catch (_) {}
-
-  // 5) último recurso
-  return meFull;
 }
 
+// ─────────────────────────────────────────────────────────
+// ConfirmDialog (mismo contrato de props que usás en Home)
+// ─────────────────────────────────────────────────────────
+function ConfirmDialog({ open, title, message, onCancel, onConfirm }) {
+  if (!open) return null;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,.5)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 9999,
+      }}
+    >
+      <div
+        style={{
+          width: 420,
+          background: "#1f2937",
+          color: "#e5e7eb",
+          border: "1px solid rgba(255,255,255,.1)",
+          borderRadius: 12,
+          padding: 20,
+          boxShadow: "0 10px 30px rgba(0,0,0,.5)",
+        }}
+      >
+        <h3 style={{ margin: "0 0 10px 0", fontSize: 18, fontWeight: 700 }}>{title}</h3>
+        <p style={{ margin: "0 0 18px 0", lineHeight: 1.4 }}>{message}</p>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button
+            onClick={onCancel}
+            style={{
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,.2)",
+              color: "#fff",
+              padding: "8px 12px",
+              borderRadius: 10,
+              cursor: "pointer",
+            }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            style={{
+              background: "#facc15",
+              border: "1px solid #facc15",
+              color: "#111827",
+              padding: "8px 12px",
+              borderRadius: 10,
+              cursor: "pointer",
+              fontWeight: 700,
+            }}
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardLayout({ children, topRight = null }) {
   const [me, setMe] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -130,6 +112,13 @@ export default function DashboardLayout({ children, topRight = null }) {
       }
     })();
   }, []);
+
+  const doLogout = async () => {
+    try {
+      await api.post("/api/auth/logout/");
+    } catch {}
+    window.location.href = "/login";
+  };
 
   const menuItems = useMemo(
     () => [
@@ -153,12 +142,60 @@ export default function DashboardLayout({ children, topRight = null }) {
     [me]
   );
 
+  const cargoNombre =
+    me?.cargo_nombre ??
+    (isAdminUser(me) ? "Administrador" : null);
+
+  // Estilo del botón igual que el Home (outline claro)
+  const btnOutline = {
+    background: "transparent",
+    border: "1px solid rgba(255,255,255,.2)",
+    color: "#fff",
+    padding: "8px 12px",
+    borderRadius: 10,
+    cursor: "pointer",
+  };
+
   return (
     <>
       <div className="layout-grid">
         <header className="layout-header">
           <div />
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>{topRight}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {/* 👇 NUEVO: saludo + nombre de usuario */}
+            {me && (
+              <span style={{ opacity: 0.9 }}>
+                Hola, <strong>{me.username ?? me.emp_nombre ?? "Usuario"}</strong>
+              </span>
+            )}
+
+            {/* Badge de cargo (Administrador u otro) */}
+            {cargoNombre && (
+              <span
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  background: isAdminUser(me) ? "#facc15" : "#374151",
+                  color: isAdminUser(me) ? "#111827" : "#e5e7eb",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  letterSpacing: 0.3,
+                  textTransform: "capitalize",
+                }}
+                title="Cargo"
+              >
+                {cargoNombre}
+              </span>
+            )}
+
+            {/* Botón Cerrar Sesión con ConfirmDialog (igual que Home) */}
+            <button onClick={() => setShowConfirm(true)} style={btnOutline}>
+              Cerrar sesión
+            </button>
+
+            {/* Si alguna página aún pasa algo en topRight, lo seguimos mostrando */}
+            {topRight}
+          </div>
         </header>
 
         <aside className="layout-sidebar">
@@ -183,6 +220,14 @@ export default function DashboardLayout({ children, topRight = null }) {
         <main className="layout-main">{children}</main>
       </div>
 
+      <ConfirmDialog
+        open={showConfirm}
+        title="Confirmar cierre de sesión"
+        message="¿Estás seguro que quieres cerrar sesión?"
+        onCancel={() => setShowConfirm(false)}
+        onConfirm={doLogout}
+      />
+
       <style>{`
         body {
           background-image: linear-gradient(rgba(18, 18, 18, 0.65), rgba(18, 18, 18, 0.65)), url(${backgroundImage});
@@ -206,7 +251,7 @@ export default function DashboardLayout({ children, topRight = null }) {
           align-items: center;
           justify-content: space-between;
           padding: 0 24px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          border-bottom: 1px solid rgba(255,255,255,0.1);
         }
 
         .layout-sidebar {
@@ -218,7 +263,7 @@ export default function DashboardLayout({ children, topRight = null }) {
           display: flex;
           flex-direction: column;
         }
-        
+
         .sidebar-brand {
           display: flex;
           align-items: center;
@@ -248,15 +293,15 @@ export default function DashboardLayout({ children, topRight = null }) {
           border-radius: 8px;
           color: #d1d5db;
           font-weight: 500;
-          transition: background-color 0.2s ease, color 0.2s ease;
+          transition: background-color .2s ease, color .2s ease;
         }
-        
+
         .sidebar-icon {
           font-size: 1.1rem;
         }
 
         .sidebar-link:hover {
-          background-color: rgba(250, 204, 21, 0.1);
+          background-color: rgba(250,204,21,0.1);
           color: #facc15;
         }
 
@@ -268,8 +313,7 @@ export default function DashboardLayout({ children, topRight = null }) {
 
         .layout-main {
           grid-column: 2 / -1;
-          /* 🔥 CORRECCIÓN: Se reduce el padding superior */
-          padding: 18px 28px; 
+          padding: 18px 28px;
           background: transparent;
           overflow-y: auto;
         }
@@ -277,3 +321,7 @@ export default function DashboardLayout({ children, topRight = null }) {
     </>
   );
 }
+
+
+
+

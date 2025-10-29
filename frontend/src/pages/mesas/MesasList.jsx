@@ -10,11 +10,22 @@ function normalize(resp) {
   return [];
 }
 
+const isBlockingEstado = (raw) => {
+  const s = String(raw || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
+  // Bloquea si hay pedidos "entregado" o "en proceso"
+  return s === "entregado" || s === "en proceso" || s === "en_proceso" || s === "en-proceso";
+};
+
 export default function MesasList() {
   const [data, setData] = useState([]);
   const [estados, setEstados] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
+  const [bloqueadas, setBloqueadas] = useState(new Set()); // mesas con pedidos Entregado/En proceso
 
   const fetchEstados = async () => {
     try {
@@ -35,8 +46,30 @@ export default function MesasList() {
     }
   };
 
+  // Marca como bloqueadas las mesas que tengan pedidos en estado Entregado o En proceso
+  const fetchPedidosBloqueantes = async () => {
+    try {
+      const { data } = await api.get("/api/pedidos/", { params: { page_size: 1000 } });
+      const list = normalize(data);
+      const s = new Set();
+      list.forEach((p) => {
+        const estado = p?.estado_nombre ?? p?.id_estado_pedido?.estp_nombre ?? p?.estado ?? "";
+        const idMesa = p?.id_mesa?.id_mesa ?? p?.id_mesa ?? null;
+        if (idMesa && isBlockingEstado(estado)) {
+          s.add(Number(idMesa));
+        }
+      });
+      setBloqueadas(s);
+    } catch (e) {
+      console.warn("No se pudieron cargar pedidos para validar bloqueo de edición.");
+    }
+  };
+
   useEffect(() => {
-    Promise.all([fetchEstados(), fetchMesas()]).catch(() => {});
+    (async () => {
+      await Promise.all([fetchEstados(), fetchMesas()]);
+      await fetchPedidosBloqueantes();
+    })();
   }, []);
 
   const estIdByName = (nombre) => {
@@ -44,30 +77,38 @@ export default function MesasList() {
     return estados.find(e => String(e.estms_nombre).toLowerCase() === n)?.id_estado_mesa;
   };
 
-  const toggleEstado = async (mesa) => {
+  const estNombre = (r) =>
+    r.estado_mesa_nombre ?? r?.id_estado_mesa?.estms_nombre ?? "-";
+
+  const setEstado = async (mesa, targetNombre) => {
     try {
-      const currentName =
-        mesa.estado_mesa_nombre ??
-        mesa?.id_estado_mesa?.estms_nombre ??
-        "";
-      const isDisponible = String(currentName).toLowerCase() === "disponible";
-      const next = isDisponible ? "Ocupada" : "Disponible";
-      const nextId = estIdByName(next);
-      if (!nextId) {
-        alert("No encuentro el catálogo de estados. Creá Disponible/Ocupada/Inactiva.");
+      const targetId = estIdByName(targetNombre);
+      if (!targetId) {
+        alert('No encuentro el estado "' + targetNombre + '" en el catálogo. Creá Disponible/Ocupada/Inactiva.');
         return;
       }
       const id = mesa.id_mesa ?? mesa.id;
-      await api.patch(`/api/mesas/${id}/`, { id_estado_mesa: nextId });
+      await api.patch(`/api/mesas/${id}/`, { id_estado_mesa: targetId });
       await fetchMesas();
+      await fetchPedidosBloqueantes();
     } catch (e) {
       console.error(e);
       setMsg("No se pudo cambiar el estado.");
     }
   };
 
-  const estNombre = (r) =>
-    r.estado_mesa_nombre ?? r?.id_estado_mesa?.estms_nombre ?? "-";
+  const toggleOcupadaDisponible = async (mesa) => {
+    const currentName = String(estNombre(mesa) || "").toLowerCase();
+    const next = currentName === "disponible" ? "Ocupada" : "Disponible";
+    await setEstado(mesa, next);
+  };
+
+  // Desactivar / Activar (Inactiva <-> Disponible)
+  const toggleInactiva = async (mesa) => {
+    const currentName = String(estNombre(mesa) || "").toLowerCase();
+    const next = currentName === "inactiva" ? "Disponible" : "Inactiva";
+    await setEstado(mesa, next);
+  };
 
   const sorted = useMemo(
     () => [...data].sort((a, b) => (a.ms_numero ?? 0) - (b.ms_numero ?? 0)),
@@ -90,7 +131,7 @@ export default function MesasList() {
                 <th>ID</th>
                 <th>Número</th>
                 <th>Estado</th>
-                <th style={{width:260}}>Acciones</th>
+                <th style={{width:420}}>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -99,16 +140,49 @@ export default function MesasList() {
               )}
               {sorted.map((r, idx) => {
                 const id = r.id_mesa ?? r.id ?? idx;
+                const nombreEstado = String(estNombre(r)).toLowerCase();
+                const isBloq = bloqueadas.has(Number(id)); // BLOQUEA si tiene pedido Entregado/En proceso
                 return (
                   <tr key={id}>
                     <td>{id}</td>
                     <td>{r.ms_numero ?? "-"}</td>
-                    <td>{estNombre(r)}</td>
-                    <td style={{display:"flex",gap:8, flexWrap:"wrap"}}>
-                      <Link to={`/mesas/${id}/editar`} className="btn btn-secondary">Editar</Link>
-                      <button onClick={() => toggleEstado(r)} className="btn btn-danger">
-                        {String(estNombre(r)).toLowerCase() === "disponible" ? "Marcar ocupada" : "Marcar disponible"}
-                      </button>
+                    <td style={{textTransform:"capitalize"}}>{estNombre(r)}</td>
+                    <td style={{display:"flex",gap:8, flexWrap:"wrap", alignItems:"center"}}>
+                      {/* Editar: deshabilitado si la mesa está bloqueada (Entregado/En proceso) */}
+                      {isBloq ? (
+                        <>
+                          <span
+                            className="btn btn-secondary disabled"
+                            title="No se puede editar: la mesa tiene un pedido Entregado/En proceso"
+                            style={{opacity:.6, cursor:"not-allowed"}}
+                            onClick={(e)=>e.preventDefault()}
+                          >
+                            Editar
+                          </span>
+                          <small style={{color:"#facc15"}}>Mesa bloqueada por pedido activo</small>
+                        </>
+                      ) : (
+                        <Link to={`/mesas/${id}/editar`} className="btn btn-secondary">Editar</Link>
+                      )}
+
+                      {/* Ocultar acciones cuando está bloqueada */}
+                      {!isBloq && (
+                        <>
+                          {/* Ocupada/Disponible */}
+                          <button onClick={() => toggleOcupadaDisponible(r)} className="btn btn-danger">
+                            {nombreEstado === "disponible" ? "Marcar ocupada" : "Marcar disponible"}
+                          </button>
+
+                          {/* Desactivar / Activar */}
+                          <button
+                            onClick={() => toggleInactiva(r)}
+                            className="btn btn-warning"
+                            title={nombreEstado === "inactiva" ? "Activar mesa (Disponible)" : "Desactivar mesa (Inactiva)"}
+                          >
+                            {nombreEstado === "inactiva" ? "Activar" : "Desactivar"}
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 );
@@ -131,5 +205,8 @@ const styles = `
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 .btn-danger { background:#ef4444; color:#fff; border-color:#ef4444; }
+.btn-warning { background:#f59e0b; color:#111827; border-color:#f59e0b; }
 `;
+
+
 
