@@ -2,12 +2,13 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from pizzeria.api.views import (
     EmpleadosViewSet, ClienteViewSet, InsumoViewSet, PlatoViewSet,
-    PedidoViewSet, VentaViewSet, MovimientoCajaViewSet, TipoPedidoViewSet,
-    EstadoPedidoViewSet, MetodoPagoViewSet,
+    PedidoViewSet, VentaViewSet, MovimientosCajaViewSet, TipoPedidoViewSet,
+    EstadoPedidoViewSet, 
+    MetodoPagoViewSet,
     CargoViewSet, EstadoEmpleadoViewSet,ProveedorViewSet, EstadoProveedorViewSet, CategoriaProveedorViewSet,RecetaViewSet,DetalleRecetaViewSet,
     CategoriaPlatoViewSet,EstadoRecetaViewSet,DetallePedidoViewSet,EstadoCompraViewSet,CompraViewSet,DetalleCompraViewSet,
     CompraViewSet,DetalleCompraViewSet,ProveedorInsumoViewSet,EstadoMesasViewSet,MesasViewSet,
-    EstadoVentaViewSet,DetalleVentaViewSet
+    EstadoVentaViewSet,DetalleVentaViewSet,CajaEstadoView,CajaHistorialView
 )
 
 router = DefaultRouter()
@@ -19,7 +20,7 @@ router.register(r"pedidos", PedidoViewSet, basename="pedidos")
 router.register(r"ventas", VentaViewSet, basename="ventas")
 router.register(r"estado-ventas", EstadoVentaViewSet, basename="estado-ventas")
 router.register(r"detalle-ventas", DetalleVentaViewSet, basename="detalle-ventas")
-router.register(r"movimientos-caja", MovimientoCajaViewSet, basename="movimientos-caja")
+router.register(r"movimientos-caja", MovimientosCajaViewSet, basename="movimientos-caja")
 router.register(r"tipos-pedido", TipoPedidoViewSet, basename="tipos-pedido")
 router.register(r"estados-pedido", EstadoPedidoViewSet, basename="estados-pedido")
 router.register(r"metodos-pago", MetodoPagoViewSet, basename="metodos-pago")
@@ -40,12 +41,14 @@ router.register(r"compras", CompraViewSet, basename="compras")
 router.register(r"detalle-compras", DetalleCompraViewSet, basename="detalle-compras")
 router.register(r"proveedores-insumos", ProveedorInsumoViewSet, basename="proveedores-insumos")
 router.register(r"estados-mesa", EstadoMesasViewSet, basename="estados-mesa")
+
 urlpatterns = [
-    path("api/", include(router.urls)),
+    path("", include(router.urls)),
+    path("caja/estado/", CajaEstadoView.as_view(), name="caja-estado"),
+    path("caja/historial/", CajaHistorialView.as_view(), name="caja-historial"),
+
     # ... (tus rutas de auth/me/logout/JWT si las tenés)
 ]
 
 
-urlpatterns = [
-    path('', include(router.urls)),
-]
+

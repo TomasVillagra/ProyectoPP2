@@ -473,7 +473,7 @@ export default function ProveedorInsumos() {
               <th>ID</th>
               <th>Insumo</th>
               <th>Unidad</th>
-              <th>Stock actual</th>
+              <th>Capacidad</th>
               <th>Precio</th>
               <th>Acciones</th>
             </tr>
@@ -494,7 +494,17 @@ export default function ProveedorInsumos() {
                   <td>{ins.id_insumo ?? r.id_insumo}</td>
                   <td>{ins.ins_nombre ?? r.ins_nombre ?? "-"}</td>
                   <td>{ins.ins_unidad ?? "-"}</td>
-                  <td>{ins.ins_stock_actual ?? "-"}</td>
+                  <td>
+                    {ins.ins_capacidad
+                      ? `${Number(ins.ins_capacidad).toLocaleString("es-AR", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })} ${""}`
+                      : "-"
+                    }
+                  </td>
+
+
 
                   {/* Precio (con edición en línea, bloquea guardar si hay compras "En proceso") */}
                   <td>

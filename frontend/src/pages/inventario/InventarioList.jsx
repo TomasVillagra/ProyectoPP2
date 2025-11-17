@@ -131,7 +131,8 @@ export default function InventarioList() {
                           <span className="name">{i.ins_nombre}</span>
                         </div>
                         <div className="metrics">
-                          Stock: {formatNumber(i.ins_stock_actual)} {i.ins_unidad} · Reposición: {formatNumber(i.ins_punto_reposicion)}
+                          Stock: {formatNumber(i.ins_stock_actual)} {i.ins_unidad} · Reposición:{" "}
+                          {formatNumber(i.ins_punto_reposicion)}
                         </div>
                       </li>
                     ))}
@@ -161,7 +162,7 @@ export default function InventarioList() {
         />
       </div>
 
-      {/* Tabla de insumos */}
+          {/* Tabla de insumos */}
       <div className="table-container">
         <table className="table">
           <thead>
@@ -169,6 +170,9 @@ export default function InventarioList() {
               <th>ID</th>
               <th>Nombre</th>
               <th>Unidad</th>
+              {/* Cantidad que TENÉS ahora (fardos equivalentes) */}
+              <th>Cantidad</th>
+              <th>Capacidad</th>
               <th>Stock actual</th>
               <th>Pto. reposición</th>
               <th>Stock min</th>
@@ -183,6 +187,17 @@ export default function InventarioList() {
                 <td>{r.id_insumo}</td>
                 <td>{r.ins_nombre}</td>
                 <td>{r.ins_unidad}</td>
+
+                {/* 👉 Cantidad dinámica: viene del BACK (insumos_equivalentes) */}
+                <td>
+                  {r.insumos_equivalentes != null ? r.insumos_equivalentes : "-"}
+                </td>
+
+                {/* Capacidad de cada fardo / bolsa / caja */}
+                <td>
+                  {formatNumber(r.ins_capacidad)} {r.ins_unidad}
+                </td>
+
                 <td>{formatNumber(r.ins_stock_actual)}</td>
                 <td>{formatNumber(r.ins_punto_reposicion)}</td>
                 <td>{formatNumber(r.ins_stock_min)}</td>
@@ -211,7 +226,7 @@ export default function InventarioList() {
             ))}
             {filteredRows.length === 0 && (
               <tr>
-                <td colSpan="9" className="empty-row">
+                <td colSpan="11" className="empty-row">
                   No hay insumos que coincidan con la búsqueda.
                 </td>
               </tr>
@@ -219,6 +234,7 @@ export default function InventarioList() {
           </tbody>
         </table>
       </div>
+
 
       <ConfirmDialog
         open={dialog.isOpen}
@@ -306,3 +322,4 @@ export default function InventarioList() {
     </DashboardLayout>
   );
 }
+

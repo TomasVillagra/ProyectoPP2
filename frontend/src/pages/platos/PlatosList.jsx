@@ -1,9 +1,10 @@
+// src/pages/platos/PlatosList.jsx
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 
-/* ==== helpers comunes de normalización (como en tu código) ==== */
+/* ==== helpers comunes de normalización ==== */
 function normalizeResponse(respData) {
   if (Array.isArray(respData)) return respData;
   if (respData?.results && Array.isArray(respData.results)) return respData.results;
@@ -18,7 +19,7 @@ const norm = (s) =>
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\s+/g, "");
 
-/* ==== EXISTENTE: detección si el plato está en pedidos (para desactivar con bloqueo) ==== */
+/* ==== EXISTENTE: chequear si el plato está en pedidos para bloquear desactivado ==== */
 async function platoEstaEnPedidos(idPlato) {
   const tryEndpoints = [
     "/api/pedido-detalles/",
@@ -33,7 +34,7 @@ async function platoEstaEnPedidos(idPlato) {
       if (list.length > 0) return true;
     } catch {}
   }
-  // fallback: leer pedidos e items embebidos
+  // fallback: leer pedidos con items embebidos
   try {
     const { data } = await api.get("/api/pedidos/", { params: { page_size: 1000 } });
     const pedidos = normalizeResponse(data);
@@ -48,8 +49,7 @@ async function platoEstaEnPedidos(idPlato) {
 }
 
 /* ================================================================
-   NUEVO: helpers de recetas/insumos/stock para "Cargar stock"
-   (basado en la validación de tu PedidoRegistrar.jsx)
+   Helpers de recetas/insumos/stock para "Cargar stock"
    ================================================================ */
 const getNumber = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const readPlatoStockField = (p) =>
@@ -57,7 +57,7 @@ const readPlatoStockField = (p) =>
 const readInsumoStockField = (i) =>
   getNumber(i?.ins_stock_actual ?? i?.ins_stock ?? i?.stock_actual ?? i?.stock ?? 0);
 
-// ⬅️ CORRECCIÓN: incluir detr_cant_unid (tu campo real)
+// ⬅️ usa SIEMPRE detr_cant_unid si está presente (tu campo real)
 const readRecetaCantPorPlato = (det) =>
   getNumber(
     det?.detr_cant_unid ??
@@ -121,37 +121,44 @@ async function fetchInsumo(insumoId) {
   return null;
 }
 
-/** Valida producir `cantidad` de un plato:
- *  - Si hay stock directo del plato suficiente, deja pasar.
- *  - Si no, busca receta → verifica insumos y devuelve faltantes si no alcanza.
- *  Retorna `null` si todo OK, o { motivo, faltantes: [{nombre, requerido, disponible}], plato }
+/** Validación estricta:
+ *  - Si hay stock directo del plato suficiente, OK (no requiere receta).
+ *  - Si no, chequea receta y verifica TODOS los insumos; si falta alguno, devuelve detalle.
+ *  - NO toca stock.
+ *  Retorna null si todo OK, o { motivo, faltantes: [...] } si falla.
  */
 async function validarProduccion({ id_plato, cantidad }) {
   const platoId = Number(id_plato);
   const cant = Number(cantidad);
   if (!platoId || !cant) return { motivo: "Datos inválidos.", faltantes: [] };
 
+  // 1) stock directo del plato
   const plato = await fetchPlato(platoId);
   if (plato) {
     const st = readPlatoStockField(plato);
-    if (st >= cant) return null; // ya hay stock directo suficiente, produciría sumando igual si querés
+    if (st >= cant) return null; // suficiente stock del plato
   }
 
+  // 2) receta
   const receta = await fetchRecetaDePlato(platoId);
   if (!receta) {
-    return { motivo: "El plato no tiene receta y su stock es insuficiente.", faltantes: [] };
+    return { motivo: "El plato no tiene receta y su stock actual no alcanza.", faltantes: [] };
   }
 
   const recetaId = receta.id_receta ?? receta.id ?? receta.receta_id ?? receta.rec_id ?? null;
   const dets = recetaId ? await fetchDetallesReceta(recetaId) : [];
 
+  // 3) pre-cálculo global
   const faltantes = [];
   for (const det of dets) {
     const insumoId = Number(det.id_insumo ?? det.insumo ?? det.id ?? det.insumo_id ?? 0);
     if (!insumoId) continue;
 
-    const porPlato = readRecetaCantPorPlato(det); // ⬅️ usa detr_cant_unid si existe
+    const porPlato = readRecetaCantPorPlato(det);
     const requerido = porPlato * cant;
+
+    if (requerido <= 0) continue;
+
     const ins = await fetchInsumo(insumoId);
     const disp = readInsumoStockField(ins);
 
@@ -160,11 +167,11 @@ async function validarProduccion({ id_plato, cantidad }) {
       faltantes.push({ id_insumo: insumoId, nombre, requerido, disponible: disp });
     }
   }
+
   return faltantes.length ? { motivo: "Faltan insumos para producir.", faltantes } : null;
 }
 
-/* ==== NUEVO: ejecutar producción ==== */
-/** Opción A: endpoint especializado (si existe en tu backend). */
+/** Intenta usar endpoint especializado si existe */
 async function tryProducirEndpoint(platoId, cantidad) {
   try {
     await api.post(`/api/platos/${platoId}/producir/`, { cantidad: Number(cantidad) });
@@ -174,10 +181,7 @@ async function tryProducirEndpoint(platoId, cantidad) {
   }
 }
 
-/** Fallback: descuenta insumos y aumenta stock del plato con PATCH (mejor que nada).
- *  Nota: esto no es transaccional; lo ideal es implementarlo en el backend con una transacción.
- */
-// ⬅️ CORRECCIÓN: contemplar plt_stock en PRIMER lugar
+/** PATCH helpers (respeta tus nombres reales de campos) */
 async function actualizarStockPlato(platoId, nuevoStock) {
   const payloadCandidates = [
     { plt_stock: Number(nuevoStock) },
@@ -207,25 +211,44 @@ async function actualizarStockInsumo(insumoId, nuevoStock) {
   }
   throw new Error(`No se pudo actualizar el stock del insumo #${insumoId}.`);
 }
+
+/** Fallback seguro:
+ *  - Recalcula TODO
+ *  - Si cualquier insumo quedaría negativo, lanza error y NO toca nada
+ */
 async function producirPorFallback(platoId, cantidad) {
-  // 1) Obtener receta y detalles
   const receta = await fetchRecetaDePlato(platoId);
-  if (!receta) throw new Error("El plato no tiene receta para fallback.");
+  if (!receta) throw new Error("El plato no tiene receta para producir por fallback.");
   const recetaId = receta.id_receta ?? receta.id ?? receta.receta_id ?? receta.rec_id ?? null;
   const dets = recetaId ? await fetchDetallesReceta(recetaId) : [];
-  // 2) Calcular y descontar insumos
+
+  // pre-calcular requerimientos + disponibilidad
+  const requeridos = [];
   for (const det of dets) {
     const insumoId = Number(det.id_insumo ?? det.insumo ?? det.id ?? det.insumo_id ?? 0);
     if (!insumoId) continue;
-    const porPlato = readRecetaCantPorPlato(det); // ⬅️ usa detr_cant_unid si existe
-    const requerido = porPlato * Number(cantidad);
-    if (requerido <= 0) continue;
+
+    const porPlato = readRecetaCantPorPlato(det);
+    const req = porPlato * Number(cantidad);
+    if (req <= 0) continue;
 
     const ins = await fetchInsumo(insumoId);
     const disp = readInsumoStockField(ins);
-    await actualizarStockInsumo(insumoId, disp - requerido);
+
+    if (disp - req < 0) {
+      const nombre = ins?.ins_nombre ?? ins?.nombre ?? `Insumo #${insumoId}`;
+      throw new Error(`Insumo insuficiente: ${nombre}. Requiere ${req}, disponible ${disp}.`);
+    }
+
+    requeridos.push({ insumoId, req, disp });
   }
-  // 3) Aumentar stock del plato
+
+  // aplicar descuentos (si todo OK)
+  for (const r of requeridos) {
+    await actualizarStockInsumo(r.insumoId, r.disp - r.req);
+  }
+
+  // sumar stock del plato
   const plato = await fetchPlato(platoId);
   const stockPlato = readPlatoStockField(plato);
   await actualizarStockPlato(platoId, stockPlato + Number(cantidad));
@@ -238,20 +261,20 @@ export default function PlatosList() {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
 
-  // ---- estado modal categoría (existente) ----
+  // ---- estado modal categoría ----
   const [showCatModal, setShowCatModal] = useState(false);
   const [catNombre, setCatNombre] = useState("");
   const [catMsg, setCatMsg] = useState("");
   const [savingCat, setSavingCat] = useState(false);
 
-  // ---- NUEVO: modal de producción ----
+  // ---- modal de producción ----
   const [showProd, setShowProd] = useState(false);
   const [prodPlato, setProdPlato] = useState(null);
   const [prodCantidad, setProdCantidad] = useState("");
   const [prodMsg, setProdMsg] = useState("");
   const [producing, setProducing] = useState(false);
 
-  // ---- CATEGORÍAS: traigo todas para poder mapear id -> nombre
+  // cargar categorías para mapear id -> nombre
   const fetchCategorias = async () => {
     try {
       const res = await api.get("/api/categorias-plato/");
@@ -262,7 +285,6 @@ export default function PlatosList() {
     }
   };
 
-  // Mapa id -> nombre
   const catMap = useMemo(() => {
     const map = {};
     categorias.forEach((c) => {
@@ -297,7 +319,7 @@ export default function PlatosList() {
       const idEstadoActual = String(plato.id_estado_plato ?? plato.id_estado ?? plato.estado ?? "1");
       const nextEstado = idEstadoActual === "1" ? 2 : 1;
 
-      // ⛔ si voy a desactivar y está en pedidos -> bloquear
+      // si voy a desactivar y está en pedidos -> bloquear
       if (nextEstado === 2) {
         const enPedidos = await platoEstaEnPedidos(id);
         if (enPedidos) {
@@ -314,7 +336,7 @@ export default function PlatosList() {
     }
   };
 
-  // Detección de duplicado directo desde la lista (opcional para feedback rápido de platos)
+  // duplicados por nombre (rapidez visual)
   const nombresNormalizados = useMemo(() => {
     const map = {};
     data.forEach((p) => {
@@ -324,7 +346,7 @@ export default function PlatosList() {
     return map;
   }, [data]);
 
-  // Set de categorías normalizadas, para validar duplicados
+  // categorías normalizadas para validar duplicados
   const categoriaNormSet = useMemo(() => {
     const set = new Set();
     categorias.forEach((c) => {
@@ -334,7 +356,7 @@ export default function PlatosList() {
     return set;
   }, [categorias]);
 
-  // Crear categoría con payloads alternativos (según tus serializers)
+  // crear categoría
   const tryCreateCategoria = async (nombrePlano) => {
     const candidates = [
       { catplt_nombre: nombrePlano },
@@ -364,7 +386,6 @@ export default function PlatosList() {
     const raw = (catNombre || "").trim();
     const n = norm(raw);
 
-    // Validaciones
     if (!raw) {
       setCatMsg("Ingresá un nombre de categoría.");
       return;
@@ -381,7 +402,7 @@ export default function PlatosList() {
     try {
       setSavingCat(true);
       await tryCreateCategoria(raw);
-      await fetchCategorias(); // refresca la lista y el set de duplicados
+      await fetchCategorias();
       setShowCatModal(false);
     } catch (e) {
       const apiMsg = e?.response?.data ? JSON.stringify(e.response.data) : "No se pudo crear la categoría.";
@@ -392,7 +413,7 @@ export default function PlatosList() {
   };
 
   /* ================================================================
-     NUEVO: flujo “Cargar stock” (producir)
+     Flujo “Cargar stock” (producir)
      ================================================================ */
   const abrirCargarStock = (plato) => {
     setProdPlato(plato);
@@ -430,10 +451,10 @@ export default function PlatosList() {
         return;
       }
 
-      // 2) Intentar endpoint especializado
+      // 2) Endpoint especializado
       const ok = await tryProducirEndpoint(platoId, cant);
       if (!ok) {
-        // 3) Fallback: descartar insumos + subir stock del plato
+        // 3) Fallback seguro
         await producirPorFallback(platoId, cant);
       }
 
@@ -494,16 +515,13 @@ export default function PlatosList() {
                 const id = r.id_plato ?? r.id ?? idx;
                 const nombre = r.pla_nombre ?? r.plt_nombre ?? r.nombre ?? "(sin nombre)";
                 const precio = r.pla_precio ?? r.plt_precio ?? r.precio ?? 0;
-
                 const stock = r.plt_stock ?? r.pla_stock ?? r.stock ?? r.stock_actual ?? "-";
 
                 let categoriaNombre = r.categoria_nombre ?? r.cat_nombre ?? null;
-
                 if (!categoriaNombre && r.categoria && typeof r.categoria === "object") {
                   categoriaNombre =
                     r.categoria.nombre ?? r.categoria.cat_nombre ?? r.categoria.categoria_nombre ?? null;
                 }
-
                 const categoriaId =
                   r.id_categoria_plato ??
                   r.id_categoria ??
@@ -530,7 +548,6 @@ export default function PlatosList() {
                       <button onClick={() => toggleEstado(r)} className="btn btn-danger">
                         {idEstado === "1" ? "Desactivar" : "Activar"}
                       </button>
-                      {/* NUEVO: Cargar stock (producir) */}
                       <button className="btn btn-primary" onClick={() => abrirCargarStock(r)}>
                         Cargar stock
                       </button>
@@ -543,7 +560,7 @@ export default function PlatosList() {
         </div>
       )}
 
-      {/* ==== Modal simple para crear categoría (existente) ==== */}
+      {/* Modal simple para crear categoría */}
       {showCatModal && (
         <div style={modal.backdrop} onClick={() => !savingCat && setShowCatModal(false)}>
           <div style={modal.card} onClick={(e) => e.stopPropagation()}>
@@ -572,14 +589,14 @@ export default function PlatosList() {
         </div>
       )}
 
-      {/* ==== NUEVO: Modal para producir (cargar stock) ==== */}
+      {/* Modal para producir (cargar stock) */}
       {showProd && (
         <div style={modal.backdrop} onClick={() => !producing && setShowProd(false)}>
           <div style={modal.card} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Cargar stock de plato</h3>
             <p style={{ margin: "6px 0 12px", color: "#d1d5db" }}>
               Ingresá la <strong>cantidad</strong> a producir. Se validará el stock de insumos según la{" "}
-              <strong>receta</strong>.
+              <strong>receta</strong>. Si falta algún insumo, no se descontará nada.
             </p>
             <div style={{ display: "grid", gap: 8 }}>
               <div style={{ color: "#eaeaea" }}>
@@ -666,6 +683,7 @@ const modal = {
     whiteSpace: "pre-wrap",
   },
 };
+
 
 
 

@@ -1,4 +1,3 @@
-// src/pages/pedidos/PedidosList.jsx
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/axios";
@@ -42,7 +41,6 @@ const isTerminal   = (r) => isFinalizado(r) || isCancelado(r);
 /* Mostrar fecha amigable */
 function fmtDate(dt) {
   if (!dt) return "-";
-  // intenta parsear ISO; si no, muestra "crudo" lindo
   try {
     const d = new Date(dt);
     if (isNaN(d.getTime())) {
@@ -251,27 +249,26 @@ export default function PedidosList() {
   const [estadosMesa, setEstadosMesa] = useState([]);
   const [platos, setPlatos] = useState([]);
 
-  // sólo platos con receta
   const [platosConReceta, setPlatosConReceta] = useState(new Set());
 
-  // ===== NUEVOS: filtros / orden / paginación =====
-  const [q, setQ] = useState("");             // búsqueda rápida
-  const [fMesa, setFMesa] = useState("");     // mesa
-  const [fEmp, setFEmp] = useState("");       // empleado
-  const [fTipo, setFTipo] = useState("");     // tipo
-  const [fEstado, setFEstado] = useState(""); // estado
-  const [orderBy, setOrderBy] = useState("fecha_desc"); // fecha_desc / fecha_asc
+  // filtros / orden / paginación
+  const [q, setQ] = useState("");
+  const [fMesa, setFMesa] = useState("");
+  const [fEmp, setFEmp] = useState("");
+  const [fTipo, setFTipo] = useState("");
+  const [fEstado, setFEstado] = useState("");
+  const [orderBy, setOrderBy] = useState("fecha_desc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
   // Modal "Agregar ítem"
   const [addOpen, setAddOpen] = useState(false);
-  const [addTarget, setAddTarget] = useState(null); // pedido seleccionado
+  const [addTarget, setAddTarget] = useState(null);
   const [newItem, setNewItem] = useState({ id_plato: "", cantidad: "" });
   const [addMsg, setAddMsg] = useState("");
   const [descontarAhora, setDescontarAhora] = useState(false);
 
-  // Modal "Cancelar" con dos opciones
+  // Modal "Cancelar"
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState(null);
 
@@ -342,7 +339,7 @@ export default function PedidosList() {
     })();
   }, []);
 
-  // ====== Acciones de stock/mesa/estado (SIN CAMBIOS) ======
+  // ====== Acciones stock/mesa/estado (SIN CAMBIOS) ======
 
   const descontarInsumos = async (pedidoId) => {
     try {
@@ -456,7 +453,6 @@ export default function PedidosList() {
       return;
     }
 
-    // Validar stock (no descuenta, solo verifica)
     const err = await validarStockItem({ id_plato, cantidad });
     if (err) {
       const plato = platos.find((p) => getPlatoId(p) === Number(err.platoId));
@@ -472,14 +468,12 @@ export default function PedidosList() {
     }
 
     try {
-      // 1) Crear detalle (aún no descuenta)
       await api.post(`/api/detalle-pedidos/`, {
         id_pedido: Number(id_pedido),
         id_plato: Number(id_plato),
         detped_cantidad: Number(cantidad),
       });
 
-      // 2) Si el usuario pidió descontar ahora
       if (descontarAhora) {
         try {
           await api.post(`/api/pedidos/${id_pedido}/descontar_insumos_detalle/`, {
@@ -517,10 +511,9 @@ export default function PedidosList() {
   };
 
   // =======================
-  // NUEVO: Filtros y orden
+  // Filtros y orden
   // =======================
 
-  // Listas únicas para selects, derivadas de los datos
   const opcionesMesa = useMemo(() => {
     const set = new Set();
     data.forEach((r) => {
@@ -557,7 +550,6 @@ export default function PedidosList() {
     return Array.from(set).sort();
   }, [data]);
 
-  // Filtrar
   const filtrados = useMemo(() => {
     const qn = lower(q);
     return data.filter((r) => {
@@ -568,7 +560,6 @@ export default function PedidosList() {
       const tipo      = r.tipo_nombre ?? r.tipped_nombre ?? r.id_tipo_pedido ?? "";
       const estado    = r.estado_nombre ?? r.estped_nombre ?? r.id_estado_pedido ?? "";
 
-      // búsqueda rápida
       const passQ =
         !qn ||
         lower(id).includes(qn) ||
@@ -586,7 +577,6 @@ export default function PedidosList() {
     });
   }, [data, q, fMesa, fEmp, fTipo, fEstado]);
 
-  // Ordenar por fecha (inicio)
   const ordenados = useMemo(() => {
     const arr = [...filtrados];
     if (orderBy === "fecha_desc") {
@@ -605,12 +595,10 @@ export default function PedidosList() {
     return arr;
   }, [filtrados, orderBy]);
 
-  // Resetear página si cambian filtros/orden/tamaño
   useEffect(() => {
     setPage(1);
   }, [q, fMesa, fEmp, fTipo, fEstado, orderBy, pageSize]);
 
-  // Paginación
   const totalRows = ordenados.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const pageSafe = Math.min(page, totalPages);
@@ -625,7 +613,7 @@ export default function PedidosList() {
 
       {msg && <p style={{color:"#facc15", whiteSpace:"pre-wrap"}}>{msg}</p>}
 
-      {/* ======= FILTROS / CONTROLES (nuevos) ======= */}
+      {/* Filtros */}
       <div className="filters">
         <input
           className="ctl"
@@ -693,26 +681,21 @@ export default function PedidosList() {
             <table className="table-dark">
               <thead>
                 <tr>
-                  <th>ID</th>
                   <th>Inicio</th>
-                  <th>Fin</th>
                   <th>Mesa</th>
-                  <th>Empleado</th>
                   <th>Tipo</th>
                   <th>Estado</th>
-                  <th style={{width:740}}>Acciones</th>
+                  <th style={{ width: 260 }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.length === 0 && (
-                  <tr><td colSpan="8" style={{textAlign:"center"}}>Sin registros</td></tr>
+                  <tr><td colSpan="5" style={{textAlign:"center"}}>Sin registros</td></tr>
                 )}
                 {rows.map((r, idx) => {
                   const id = r.id_pedido ?? r.id ?? idx;
                   const inicio = r.ped_fecha_hora_ini ?? r.ped_fecha ?? r.fecha ?? null;
-                  const fin = r.ped_fecha_hora_fin ?? null;
                   const mesa = r.mesa_numero ?? r.ms_numero ?? r.id_mesa ?? null;
-                  const empleado = r.empleado_nombre ?? r.emp_nombre ?? r.id_empleado ?? "-";
                   const tipo = r.tipo_nombre ?? r.tipped_nombre ?? r.id_tipo_pedido ?? "-";
                   const estado = r.estado_nombre ?? r.estped_nombre ?? r.id_estado_pedido ?? "-";
 
@@ -721,61 +704,86 @@ export default function PedidosList() {
 
                   return (
                     <tr key={id}>
-                      <td>{id}</td>
                       <td>{fmtDate(inicio)}</td>
-                      <td>{fmtDate(fin)}</td>
                       <td>{mesa ? `Mesa ${mesa}` : "-"}</td>
-                      <td>{empleado}</td>
                       <td>{tipo}</td>
                       <td>{String(estado)}</td>
-                      <td style={{display:"flex",gap:8, flexWrap:"wrap"}}>
-                        <Link to={`/pedidos/${id}`} className="btn btn-secondary">Ver</Link>
+                      <td>
+                        <div className="acciones-cell">
+                          {/* Ver siempre disponible */}
+                          <Link
+                            to={`/pedidos/${id}`}
+                            className="btn btn-secondary"
+                            title="Ver pedido"
+                          >
+                            👁
+                          </Link>
 
-                        {terminal ? (
-                          <button className="btn btn-secondary" disabled>Editar</button>
-                        ) : (
-                          <Link to={`/pedidos/${id}/editar`} className="btn btn-secondary">Editar</Link>
-                        )}
+                          {/* Editar sólo si NO está finalizado/cancelado */}
+                          {!terminal && (
+                            <Link
+                              to={`/pedidos/${id}/editar`}
+                              className="btn btn-secondary"
+                              title="Editar pedido"
+                            >
+                              ✏
+                            </Link>
+                          )}
 
-                        <button
-                          onClick={() => abrirAgregarItem(r)}
-                          className="btn btn-success"
-                          disabled={terminal}
-                          title={terminal ? "No disponible en estados Finalizado/Cancelado" : ""}
-                        >
-                          Agregar ítem
-                        </button>
+                          {/* Agregar ítem sólo si NO está finalizado/cancelado */}
+                          {!terminal && (
+                            <button
+                              onClick={() => abrirAgregarItem(r)}
+                              className="btn btn-success"
+                              title="Agregar ítem"
+                            >
+                              ➕
+                            </button>
+                          )}
 
-                        <button
-                          onClick={() => {
-                            const ok = window.confirm("El pedido pasará a ENTREGADO (se descontará stock). ¿Continuar?");
-                            if (ok) marcarEntregado(r);
-                          }}
-                          className="btn btn-info"
-                          disabled={terminal || entregado}
-                          title={terminal ? "No disponible" : (entregado ? "Ya está Entregado" : "")}
-                        >
-                          Entregar
-                        </button>
+                          {/* Entregar sólo si NO está terminado ni entregado */}
+                          {!terminal && !entregado && (
+                            <button
+                              onClick={() => {
+                                const ok = window.confirm(
+                                  "El pedido pasará a ENTREGADO (se descontará stock). ¿Continuar?"
+                                );
+                                if (ok) marcarEntregado(r);
+                              }}
+                              className="btn btn-info"
+                              title="Marcar como ENTREGADO"
+                            >
+                              📦
+                            </button>
+                          )}
 
-                        <button
-                          onClick={() => {
-                            const ok = window.confirm("El pedido pasará a FINALIZADO (no se descuenta stock). ¿Continuar?");
-                            if (ok) marcarFinalizado(r);
-                          }}
-                          className="btn btn-primary"
-                          disabled={terminal}
-                        >
-                          Finalizar
-                        </button>
+                          {/* Finalizar sólo si NO está finalizado/cancelado */}
+                          {!terminal && (
+                            <button
+                              onClick={() => {
+                                const ok = window.confirm(
+                                  "El pedido pasará a FINALIZADO (no se descuenta stock). ¿Continuar?"
+                                );
+                                if (ok) marcarFinalizado(r);
+                              }}
+                              className="btn btn-primary"
+                              title="Marcar como FINALIZADO"
+                            >
+                              ✅
+                            </button>
+                          )}
 
-                        <button
-                          onClick={() => abrirCancelar(r)}
-                          className="btn btn-danger"
-                          disabled={terminal}
-                        >
-                          Cancelar
-                        </button>
+                          {/* Cancelar sólo si NO está finalizado/cancelado */}
+                          {!terminal && (
+                            <button
+                              onClick={() => abrirCancelar(r)}
+                              className="btn btn-danger"
+                              title="Cancelar pedido"
+                            >
+                              ❌
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -795,7 +803,7 @@ export default function PedidosList() {
         </>
       )}
 
-      {/* ===== Modal Agregar Ítem ===== */}
+      {/* Modal Agregar Ítem */}
       {addOpen && (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -854,7 +862,7 @@ export default function PedidosList() {
         </div>
       )}
 
-      {/* ===== Modal Cancelar: dos botones ===== */}
+      {/* Modal Cancelar */}
       {cancelOpen && (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -894,6 +902,7 @@ const styles = `
 .table-wrap { overflow:auto; }
 .table-dark { width:100%; border-collapse: collapse; background:#121212; color:#eaeaea; }
 .table-dark th, .table-dark td { border:1px solid #232323; padding:10px; }
+
 .btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
@@ -901,20 +910,25 @@ const styles = `
 .btn-success { background:#22c55e; color:#0b0b0b; border-color:#22c55e; }
 .btn-info { background:#38bdf8; color:#0b0b0b; border-color:#38bdf8; }
 
-/* Filtros/Controles */
+/* Filtros */
 .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
 .filters .ctl { background:#0f0f0f; color:#fff; border:1px solid #2a2a2a; border-radius:8px; padding:8px 10px; }
 .filters .spacer { flex:1; }
 
 .paginate { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:10px; }
 
-/* Modal simple */
+/* Acciones dentro de la celda, como una "fila" de mesa */
+.acciones-cell { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+/* Modal */
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index: 1000; }
 .modal-card { background: #1b1b1e; color: #eaeaea; padding: 16px; border-radius: 12px; border: 1px solid #2a2a2a; max-width: 560px; width: 95%; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
 .row { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
 .row label { width:180px; text-align:right; color:#d1d5db; }
 select, input { flex:1; background:#0f0f0f; color:#fff; border:1px solid #2a2a2a; border-radius:8px; padding:10px 12px; }
 `;
+
+
 
 
 

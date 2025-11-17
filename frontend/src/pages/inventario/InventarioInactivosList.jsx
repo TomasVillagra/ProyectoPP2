@@ -87,6 +87,8 @@ export default function InventarioInactivosList() {
               <th>ID</th>
               <th>Nombre</th>
               <th>Unidad</th>
+              <th>Cantidad</th>      {/* NUEVO */}
+              <th>Capacidad</th>     {/* NUEVO */}
               <th>Stock actual</th>
               <th>Pto. reposición</th>
               <th>Stock min</th>
@@ -101,6 +103,10 @@ export default function InventarioInactivosList() {
                 <td>{r.id_insumo}</td>
                 <td>{r.ins_nombre}</td>
                 <td>{r.ins_unidad}</td>
+                <td>{formatNumber(r.ins_cantidad)}</td>
+                <td>
+                  {formatNumber(r.ins_capacidad)} {r.ins_unidad}
+                </td>
                 <td>{formatNumber(r.ins_stock_actual)}</td>
                 <td>{formatNumber(r.ins_punto_reposicion)}</td>
                 <td>{formatNumber(r.ins_stock_min)}</td>
@@ -118,7 +124,7 @@ export default function InventarioInactivosList() {
             ))}
             {filteredRows.length === 0 && (
               <tr>
-                <td colSpan="9" className="empty-row">
+                <td colSpan="11" className="empty-row">
                   No hay insumos inactivos o no coinciden con la búsqueda.
                 </td>
               </tr>
@@ -182,3 +188,4 @@ export default function InventarioInactivosList() {
     </DashboardLayout>
   );
 }
+

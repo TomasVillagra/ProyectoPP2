@@ -16,6 +16,8 @@ export default function InsumoEditar() {
   const [form, setForm] = useState({
     ins_nombre: "",
     ins_unidad: "",
+    ins_cantidad: "",      // NUEVO
+    ins_capacidad: "",     // NUEVO
     ins_stock_actual: "",
     ins_punto_reposicion: "",
     ins_stock_min: "",
@@ -32,6 +34,8 @@ export default function InsumoEditar() {
     const nombre = (values.ins_nombre || "").trim();
     const unidad = (values.ins_unidad || "").trim();
 
+    const cantidad   = num(values.ins_cantidad);
+    const capacidad  = num(values.ins_capacidad);
     const stockActual = num(values.ins_stock_actual);
     const puntoRepo   = num(values.ins_punto_reposicion);
     const stockMin    = num(values.ins_stock_min);
@@ -44,6 +48,13 @@ export default function InsumoEditar() {
     } else if (!UNIDADES.includes(unidad)) {
       e.ins_unidad = "Elegí una unidad válida (u, kg, g, l, ml).";
     }
+
+    // 👉 Validar cantidad y capacidad (aunque no se puedan editar, deben ser válidas)
+    if (cantidad === null) e.ins_cantidad = "La cantidad es obligatoria.";
+    else if (isNaN(cantidad) || cantidad <= 0) e.ins_cantidad = "Debe ser mayor a 0.";
+
+    if (capacidad === null) e.ins_capacidad = "La capacidad es obligatoria.";
+    else if (isNaN(capacidad) || capacidad <= 0) e.ins_capacidad = "Debe ser mayor a 0.";
 
     if (stockActual === null) e.ins_stock_actual = "El stock actual es obligatorio.";
     else if (isNaN(stockActual) || stockActual < 0) e.ins_stock_actual = "No puede ser negativo.";
@@ -81,6 +92,8 @@ export default function InsumoEditar() {
       setForm({
         ins_nombre: data.ins_nombre ?? "",
         ins_unidad: data.ins_unidad ?? "",
+        ins_cantidad: data.ins_cantidad ?? "",       // NUEVO
+        ins_capacidad: data.ins_capacidad ?? "",     // NUEVO
         ins_stock_actual: data.ins_stock_actual ?? "",
         ins_punto_reposicion: data.ins_punto_reposicion ?? "",
         ins_stock_min: data.ins_stock_min ?? "",
@@ -93,6 +106,9 @@ export default function InsumoEditar() {
 
   const onChange = (e) => {
     const { name, value } = e.target;
+    // 📝 OJO:
+    // - No llamamos onChange desde "Cantidad" ni "Stock actual"
+    //   porque esos campos estarán deshabilitados/readOnly.
     setForm((f) => ({ ...f, [name]: value }));
   };
 
@@ -125,6 +141,8 @@ export default function InsumoEditar() {
       await api.put(`/api/insumos/${id}/`, {
         ...form,
         id_estado_insumo: Number(form.id_estado_insumo),
+        ins_cantidad: form.ins_cantidad ? Number(form.ins_cantidad) : null,
+        ins_capacidad: form.ins_capacidad ? Number(form.ins_capacidad) : null,
         ins_stock_actual: form.ins_stock_actual ? Number(form.ins_stock_actual) : 0,
         ins_punto_reposicion: form.ins_punto_reposicion ? Number(form.ins_punto_reposicion) : 0,
         ins_stock_min: form.ins_stock_min ? Number(form.ins_stock_min) : 0,
@@ -176,11 +194,51 @@ export default function InsumoEditar() {
             {errors.ins_unidad && <small className="field-error">{errors.ins_unidad}</small>}
           </div>
 
+          {/* NUEVOS CAMPOS */}
+          <div className="form-group">
+            <label htmlFor="ins_cantidad">Cantidad (n° de unidades compradas)</label>
+            <input
+              id="ins_cantidad"
+              name="ins_cantidad"
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={form.ins_cantidad}
+              readOnly
+              disabled  // 👈 no se puede editar
+            />
+            {errors.ins_cantidad && <small className="field-error">{errors.ins_cantidad}</small>}
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="ins_capacidad">
+              Capacidad por unidad ({valueUnidad || "unidad"})
+            </label>
+            <input
+              id="ins_capacidad"
+              name="ins_capacidad"
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={form.ins_capacidad}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+            />
+            {errors.ins_capacidad && <small className="field-error">{errors.ins_capacidad}</small>}
+          </div>
+
           <div className="form-group">
             <label htmlFor="ins_stock_actual">Stock actual</label>
             <input
-              id="ins_stock_actual" name="ins_stock_actual" type="number" step="0.01" min="0"
-              value={form.ins_stock_actual} onChange={onChange} onBlur={onBlur} required
+              id="ins_stock_actual"
+              name="ins_stock_actual"
+              type="number"
+              step="0.01"
+              min="0"
+              value={form.ins_stock_actual}
+              readOnly
+              disabled  // 👈 tampoco se puede editar
             />
             {errors.ins_stock_actual && <small className="field-error">{errors.ins_stock_actual}</small>}
           </div>
@@ -308,3 +366,4 @@ const formStyles = `
     background-color: #4a4a4e;
   }
 `;
+

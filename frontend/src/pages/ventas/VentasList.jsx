@@ -1,4 +1,3 @@
-// src/pages/ventas/VentasList.jsx
 import { useEffect, useState } from "react";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
@@ -47,7 +46,10 @@ export default function VentasList() {
       try {
         const res = await api.get(url);
         const list = normAny(res);
-        if (Array.isArray(list)) { setEstadosVenta(list); return; }
+        if (Array.isArray(list)) {
+          setEstadosVenta(list);
+          return;
+        }
       } catch {}
     }
     setEstadosVenta([]);
@@ -72,55 +74,68 @@ export default function VentasList() {
     })();
   }, []);
 
-  const resolveEstadoId = (targetNames = []) => {
-    if (!Array.isArray(estadosVenta) || estadosVenta.length === 0) return null;
-    const targets = targetNames.map((s) => clean(s));
-    for (const it of estadosVenta) {
-      const nombre = it.estven_nombre ?? it.nombre ?? it.estado ?? "";
-      if (targets.includes(clean(nombre))) {
-        return it.id_estado_venta ?? it.id;
-      }
-    }
-    return null;
-  };
+  // Obtiene el NOMBRE del estado de la venta (nunca el id numérico)
+  const getEstadoNombre = (venta) => {
+    if (!venta) return "-";
 
-  const setEstadoVenta = async (venta, target) => {
-    try {
-      const id = venta.id_venta ?? venta.id;
-      const estadoId = resolveEstadoId([target]); // e.g. "pagada"
-      if (!estadoId) {
-        alert(`No se encontró el estado "${target}". Revisá catálogo de estados de venta.`);
-        return;
-      }
-      const candidates = [
-        `/api/ventas/${id}/`,
-        `/api/venta/${id}/`,
-      ];
-      let ok = false;
-      for (const url of candidates) {
-        try {
-          await api.patch(url, { id_estado_venta: Number(estadoId) });
-          ok = true;
-          break;
-        } catch {}
-      }
-      if (!ok) throw new Error("No se pudo actualizar el estado de la venta.");
-      await fetchVentas();
-    } catch (e) {
-      console.error(e);
-      setMsg("No se pudo cambiar el estado de la venta.");
+    // Si el backend ya manda nombre, lo usamos
+    let nombre =
+      venta.estado_nombre ??
+      venta.estven_nombre ??
+      venta.estado ??
+      "";
+
+    // Si id_estado_venta viene como objeto
+    if (!nombre && typeof venta.id_estado_venta === "object" && venta.id_estado_venta !== null) {
+      nombre =
+        venta.id_estado_venta.estven_nombre ??
+        venta.id_estado_venta.nombre ??
+        "";
     }
+
+    // Si todavía no tenemos nombre, lo buscamos en el catálogo por id
+    if (!nombre && venta.id_estado_venta != null && estadosVenta.length > 0) {
+      const idValor =
+        typeof venta.id_estado_venta === "object"
+          ? (venta.id_estado_venta.id_estado_venta ?? venta.id_estado_venta.id)
+          : venta.id_estado_venta;
+
+      const found = estadosVenta.find(
+        (ev) =>
+          String(ev.id_estado_venta ?? ev.id) === String(idValor)
+      );
+      if (found) {
+        nombre =
+          found.estven_nombre ??
+          found.nombre ??
+          found.estado ??
+          "";
+      }
+    }
+
+    return nombre || "-";
   };
 
   return (
     <DashboardLayout>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-        <h2 style={{margin:0,color:"#fff"}}>Ventas</h2>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 12,
+        }}
+      >
+        <h2 style={{ margin: 0, color: "#fff" }}>Ventas</h2>
         {/* Si querés agregar "Registrar venta" manual, poné un Link acá */}
       </div>
 
-      {msg && <p style={{color:"#facc15", whiteSpace:"pre-wrap"}}>{msg}</p>}
-      {loading ? <p>Cargando...</p> : (
+      {msg && (
+        <p style={{ color: "#facc15", whiteSpace: "pre-wrap" }}>{msg}</p>
+      )}
+      {loading ? (
+        <p>Cargando...</p>
+      ) : (
         <div className="table-wrap">
           <table className="table-dark">
             <thead>
@@ -131,20 +146,26 @@ export default function VentasList() {
                 <th>Empleado</th>
                 <th>Total</th>
                 <th>Estado</th>
-                <th style={{width:480}}>Acciones</th>
+                <th style={{ width: 220 }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {ventas.length === 0 && (
-                <tr><td colSpan="7" style={{textAlign:"center"}}>Sin registros</td></tr>
+                <tr>
+                  <td colSpan="7" style={{ textAlign: "center" }}>
+                    Sin registros
+                  </td>
+                </tr>
               )}
               {ventas.map((v, i) => {
                 const id = v.id_venta ?? v.id ?? i;
                 const fecha = v.ven_fecha_hora ?? v.fecha ?? v.created_at ?? null;
-                const cliente = v.cliente_nombre ?? v.cli_nombre ?? v.id_cliente ?? "-";
-                const empleado = v.empleado_nombre ?? v.emp_nombre ?? v.id_empleado ?? "-";
+                const cliente =
+                  v.cliente_nombre ?? v.cli_nombre ?? v.id_cliente ?? "-";
+                const empleado =
+                  v.empleado_nombre ?? v.emp_nombre ?? v.id_empleado ?? "-";
                 const total = v.ven_total ?? v.total ?? 0;
-                const estado = v.estado_nombre ?? v.estven_nombre ?? v.estado ?? v.id_estado_venta ?? "-";
+                const estadoNombre = getEstadoNombre(v); // ← siempre nombre (Pendiente, Cobrado, etc.)
 
                 return (
                   <tr key={id}>
@@ -153,20 +174,29 @@ export default function VentasList() {
                     <td>{String(cliente)}</td>
                     <td>{String(empleado)}</td>
                     <td>${money(total)}</td>
-                    <td>{String(estado)}</td>
-                    <td style={{display:"flex",gap:8, flexWrap:"wrap"}}>
-                      {/* Si tenés una pantalla de detalle de venta: */}
-                      <Link to={`/ventas/${id}`} className="btn btn-secondary">Ver</Link>
+                    <td>{estadoNombre}</td>
+                    <td
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      {/* Ver detalle de venta */}
+                      <Link
+                        to={`/ventas/${id}`}
+                        className="btn btn-secondary"
+                      >
+                        Ver
+                      </Link>
 
-                      <button className="btn btn-success" onClick={() => setEstadoVenta(v, "pagada")}>
-                        Marcar Pagada
-                      </button>
-                      <button className="btn btn-info" onClick={() => setEstadoVenta(v, "pendiente")}>
-                        Marcar Pendiente
-                      </button>
-                      <button className="btn btn-danger" onClick={() => setEstadoVenta(v, "anulada")}>
-                        Marcar Anulada
-                      </button>
+                      {/* Cobrar venta */}
+                      <Link
+                        className="btn btn-primary"
+                        to={`/cobros/${v.id_venta ?? id}`}
+                      >
+                        Cobrar
+                      </Link>
                     </td>
                   </tr>
                 );
@@ -188,7 +218,4 @@ const styles = `
 .btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
-.btn-danger { background:#ef4444; color:#fff; border-color:#ef4444; }
-.btn-success { background:#22c55e; color:#0b0b0b; border-color:#22c55e; }
-.btn-info { background:#38bdf8; color:#0b0b0b; border-color:#38bdf8; }
 `;

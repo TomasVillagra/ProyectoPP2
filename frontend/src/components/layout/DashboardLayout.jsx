@@ -3,7 +3,11 @@ import { NavLink } from "react-router-dom";
 import { useMemo, useEffect, useState } from "react";
 import { api } from "../../api/axios";
 import logo from "../../assets/logo.png";
-import { FaHome, FaFileInvoice, FaChartLine, FaCashRegister, FaBoxOpen, FaTruck, FaUsers, FaCog } from "react-icons/fa";
+import {
+  FaHome, FaFileInvoice, FaChartLine, FaCashRegister, FaBoxOpen, FaTruck,
+  FaUsers, FaCog, FaUserFriends, FaListUl, FaBoxes, FaLink, FaReceipt, FaClipboardList
+} from "react-icons/fa";
+
 import backgroundImage from '../../assets/pizza-background.jpg';
 
 const norm = (s) =>
@@ -121,26 +125,44 @@ export default function DashboardLayout({ children, topRight = null }) {
   };
 
   const menuItems = useMemo(
-    () => [
-      { key: "home", label: "Inicio", path: "/", icon: <FaHome /> },
-      { key: "pedidos", label: "Pedidos", path: "/pedidos", icon: <FaFileInvoice /> },
-      { key: "ventas", label: "Ventas", path: "/ventas", icon: <FaChartLine /> },
-      { key: "caja", label: "Caja", path: "/caja", icon: <FaCashRegister /> },
-      { key: "inventario", label: "Inventario", path: "/inventario", icon: <FaBoxOpen /> },
-      { key: "compras", label: "Compras", path: "/compras", icon: <FaTruck /> },
-      { key: "platos", label: "Platos", path: "/platos", icon: <FaTruck /> },
-      { key: "recetas", label: "Recetas", path: "/recetas", icon: <FaTruck /> },
-      { key: "mesas", label: "Mesas", path: "/mesas", icon: <FaTruck /> },
-      ...(isAdminUser(me)
-        ? [
-            { key: "empleados", label: "Empleados", path: "/empleados", icon: <FaUsers /> },
-            { key: "proveedores", label: "Proveedores", path: "/proveedores", icon: <FaTruck /> },
-            { key: "configuracion", label: "Configuracion", path: "/configuracion", icon: <FaCog /> },
-          ]
-        : []),
-    ],
-    [me]
-  );
+  () => [
+    { key: "home", label: "Inicio", path: "/", icon: <FaHome /> },
+
+    // Operación diaria
+    { key: "pedidos", label: "Pedidos", path: "/pedidos", icon: <FaFileInvoice /> },
+    { key: "ventas", label: "Ventas", path: "/ventas", icon: <FaChartLine /> },
+    { key: "caja", label: "Caja", path: "/caja", icon: <FaCashRegister /> },
+    { key: "caja-historial", label: "Historial de caja", path: "/caja/historial", icon: <FaCashRegister /> },
+    { key: "movimientos", label: "Movivimientos", path: "/caja/movimientos", icon: <FaReceipt /> },
+    { key: "cobros", label: "Cobros / Facturas", path: "/cobros", icon: <FaFileInvoice /> },
+    
+
+    // Stock / compras
+    { key: "inventario", label: "Inventario", path: "/inventario", icon: <FaBoxOpen /> },
+    { key: "compras", label: "Compras", path: "/compras", icon: <FaTruck /> },
+
+    // Cocina
+    { key: "platos", label: "Platos", path: "/platos", icon: <FaClipboardList /> },
+    { key: "recetas", label: "Recetas", path: "/recetas", icon: <FaListUl /> },
+    { key: "mesas", label: "Mesas", path: "/mesas", icon: <FaBoxes /> },
+
+    // Extras frecuentes (si ya tenés rutas)
+   
+
+    // Solo admin
+    ...(isAdminUser(me)
+      ? [
+          
+
+          { key: "empleados", label: "Empleados", path: "/empleados", icon: <FaUsers /> },
+          { key: "proveedores", label: "Proveedores", path: "/proveedores", icon: <FaTruck /> },
+          { key: "configuracion", label: "Configuración", path: "/configuracion", icon: <FaCog /> },
+        ]
+      : []),
+  ],
+  [me]
+);
+
 
   const cargoNombre =
     me?.cargo_nombre ??

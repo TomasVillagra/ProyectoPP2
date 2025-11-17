@@ -10,37 +10,36 @@ function normalizeList(d) {
   if (d?.data) return d.data;
   return [];
 }
-const toNumber = (v, def = 0) => (v === "" || v === null || v === undefined ? def : Number(v));
+const toNumber = (v, def = 0) =>
+  v === "" || v === null || v === undefined ? def : Number(v);
 const fmtMoney = (n) => `$${Number(n ?? 0).toFixed(2)}`;
-const lower = (s) => (s ?? "").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const lower = (s) =>
+  (s ?? "").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 const parseDate = (s) => (s ? new Date(s.replace(" ", "T")) : null); // "YYYY-MM-DD HH:MM:SS"
 
-/* Estado terminales */
-const TERMINAL = new Set(["recibida", "cancelada"]);
+/* Estados terminales de la compra */
+const TERMINAL = new Set(["recibida", "cancelada", "cobrada"]);
 
-/* ===== Página ===== */
 export default function ComprasList() {
   const [compras, setCompras] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // catálogos
-  const [estados, setEstados] = useState([]);        // {id_estado_compra, estcom_nombre}
+  const [estados, setEstados] = useState([]); // {id_estado_compra, estcom_nombre}
   const [proveedores, setProveedores] = useState([]); // {id_proveedor, prov_nombre}
 
-  // filtros visibles
+  // filtros
   const [q, setQ] = useState("");
   const [fProv, setFProv] = useState("");
   const [fEstado, setFEstado] = useState("");
 
   // orden
   const [orderBy, setOrderBy] = useState("fecha_desc");
-  // opciones: "fecha_desc" (más cerca→más lejos), "fecha_asc", "monto_asc", "monto_desc"
 
   // paginación
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  // cargar
   const fetchAll = async () => {
     try {
       setLoading(true);
@@ -74,7 +73,7 @@ export default function ComprasList() {
     return m;
   }, [estados]);
 
-  // filtrar (SIN fecha/montos)
+  // filtrar
   const comprasFiltradas = useMemo(() => {
     const qn = lower(q);
 
@@ -104,7 +103,7 @@ export default function ComprasList() {
     });
   }, [compras, q, fProv, fEstado]);
 
-  // ORDENAR (después de filtrar)
+  // ordenar
   const comprasOrdenadas = useMemo(() => {
     const arr = [...comprasFiltradas];
     if (orderBy === "fecha_desc") {
@@ -134,17 +133,17 @@ export default function ComprasList() {
   const rows = comprasOrdenadas.slice((pageSafe - 1) * pageSize, pageSafe * pageSize);
 
   useEffect(() => {
-    // si cambio filtros, orden o pageSize, volvé a página 1
     setPage(1);
   }, [q, fProv, fEstado, orderBy, pageSize]);
 
-  /* ===== Acciones: Cambiar estado ===== */
-
+  /* ===== Acciones: refrescar una compra ===== */
   const refreshOne = async (idCompra) => {
     try {
       const { data } = await api.get(`/api/compras/${idCompra}/`);
       setCompras((prev) =>
-        prev.map((x) => (String(x.id_compra ?? x.id) === String(idCompra) ? data : x))
+        prev.map((x) =>
+          String(x.id_compra ?? x.id) === String(idCompra) ? data : x
+        )
       );
     } catch (e) {
       console.error(e);
@@ -152,20 +151,33 @@ export default function ComprasList() {
     }
   };
 
+  /* ===== Cancelar ===== */
   const handleCancelar = async (compra) => {
     const id = compra.id_compra ?? compra.id;
     const estadoActual = lower(compra.estado_nombre ?? "");
-    if (TERMINAL.has(estadoActual)) return;
+    const pagado = (compra.com_pagado ?? 2) === 1;
+
+    if (pagado) {
+      alert("No podés cancelar una compra que ya está cobrada/pagada.");
+      return;
+    }
+    if (TERMINAL.has(estadoActual)) {
+      alert("No podés cancelar una compra en estado terminal (Recibida/Cancelada/Cobrada).");
+      return;
+    }
 
     const idCancelada = estadoIdByNombre.get("cancelada");
     if (!idCancelada) {
       alert("No se encontró el estado 'Cancelada'.");
       return;
     }
-    if (!window.confirm(`¿Cancelar la compra #${id}? Esta acción es definitiva.`)) return;
+    if (!window.confirm(`¿Cancelar la compra #${id}? Esta acción es definitiva.`))
+      return;
 
     try {
-      await api.patch(`/api/compras/${id}/`, { id_estado_compra: Number(idCancelada) });
+      await api.patch(`/api/compras/${id}/`, {
+        id_estado_compra: Number(idCancelada),
+      });
       await refreshOne(id);
     } catch (e) {
       console.error(e);
@@ -173,24 +185,30 @@ export default function ComprasList() {
     }
   };
 
+  /* ===== Recibir (suma stock) ===== */
   const handleRecibir = async (compra) => {
     const id = compra.id_compra ?? compra.id;
     const estadoActual = lower(compra.estado_nombre ?? "");
-    if (TERMINAL.has(estadoActual)) return;
+    const pagado = (compra.com_pagado ?? 2) === 1;
+
+    if (TERMINAL.has(estadoActual) || pagado) return;
 
     const idRecibida = estadoIdByNombre.get("recibida");
     if (!idRecibida) {
       alert("No se encontró el estado 'Recibida'.");
       return;
     }
-    if (!window.confirm(`¿Marcar como RECIBIDA la compra #${id}? Esto sumará stock al inventario.`)) return;
+    if (
+      !window.confirm(
+        `¿Marcar como RECIBIDA la compra #${id}? Esto sumará stock al inventario.`
+      )
+    )
+      return;
 
     try {
-      // 1) traer detalle de la compra
       const det = await api.get(`/api/detalle-compras/?id_compra=${id}`);
       const detalle = normalizeList(det);
 
-      // 2) actualizar stock de cada insumo
       for (const r of detalle) {
         const idInsumo = r.id_insumo ?? r.insumo_id ?? r?.id_insumo?.id_insumo;
         const cant = toNumber(r.detcom_cantidad, 0);
@@ -198,12 +216,15 @@ export default function ComprasList() {
 
         const ins = await api.get(`/api/insumos/${idInsumo}/`);
         const actual = toNumber(ins?.data?.ins_stock_actual, 0);
-        const nuevo = actual + cant;
-        await api.patch(`/api/insumos/${idInsumo}/`, { ins_stock_actual: Number(nuevo) });
+        const nuevo = actual + cant; // (si usás capacidad, esto ya lo habías cambiado en otra versión)
+        await api.patch(`/api/insumos/${idInsumo}/`, {
+          ins_stock_actual: Number(nuevo),
+        });
       }
 
-      // 3) marcar compra como Recibida
-      await api.patch(`/api/compras/${id}/`, { id_estado_compra: Number(idRecibida) });
+      await api.patch(`/api/compras/${id}/`, {
+        id_estado_compra: Number(idRecibida),
+      });
 
       await refreshOne(id);
       alert("Compra recibida y stock actualizado.");
@@ -215,12 +236,21 @@ export default function ComprasList() {
 
   return (
     <DashboardLayout>
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12}}>
-        <h2 style={{margin:0}}>Compras</h2>
-        <Link to="/compras/registrar" className="btn btn-primary">Registrar Compra</Link>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 12,
+        }}
+      >
+        <h2 style={{ margin: 0 }}>Compras</h2>
+        <Link to="/compras/registrar" className="btn btn-primary">
+          Registrar Compra
+        </Link>
       </div>
 
-      {/* Filtros / Datatable controls */}
+      {/* Filtros */}
       <div className="filters">
         <input
           className="ctl"
@@ -228,7 +258,11 @@ export default function ComprasList() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <select className="ctl" value={fProv} onChange={(e) => setFProv(e.target.value)}>
+        <select
+          className="ctl"
+          value={fProv}
+          onChange={(e) => setFProv(e.target.value)}
+        >
           <option value="">Proveedor (todos)</option>
           {proveedores.map((p) => (
             <option key={p.id_proveedor} value={p.id_proveedor}>
@@ -236,17 +270,28 @@ export default function ComprasList() {
             </option>
           ))}
         </select>
-        <select className="ctl" value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
+        <select
+          className="ctl"
+          value={fEstado}
+          onChange={(e) => setFEstado(e.target.value)}
+        >
           <option value="">Estado (todos)</option>
           {estados.map((e) => (
-            <option key={e.id_estado_compra ?? e.id} value={e.estcom_nombre ?? e.nombre}>
+            <option
+              key={e.id_estado_compra ?? e.id}
+              value={e.estcom_nombre ?? e.nombre}
+            >
               {e.estcom_nombre ?? e.nombre}
             </option>
           ))}
         </select>
 
-        {/* Orden */}
-        <select className="ctl" value={orderBy} onChange={(e)=>setOrderBy(e.target.value)} title="Ordenar por">
+        <select
+          className="ctl"
+          value={orderBy}
+          onChange={(e) => setOrderBy(e.target.value)}
+          title="Ordenar por"
+        >
           <option value="fecha_desc">Fecha (más cerca → más lejos)</option>
           <option value="fecha_asc">Fecha (más lejos → más cerca)</option>
           <option value="monto_asc">Monto (menor → mayor)</option>
@@ -254,8 +299,17 @@ export default function ComprasList() {
         </select>
 
         <div className="spacer" />
-        <select className="ctl" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} style={{width:90}}>
-          {[5,10,20,50].map(n => <option key={n} value={n}>{n}/pág</option>)}
+        <select
+          className="ctl"
+          value={pageSize}
+          onChange={(e) => setPageSize(Number(e.target.value))}
+          style={{ width: 90 }}
+        >
+          {[5, 10, 20, 50].map((n) => (
+            <option key={n} value={n}>
+              {n}/pág
+            </option>
+          ))}
         </select>
       </div>
 
@@ -272,9 +326,10 @@ export default function ComprasList() {
                   <th>Empleado</th>
                   <th>Proveedor</th>
                   <th>Estado</th>
+                  <th>Pagado</th>
                   <th>Monto</th>
                   <th>Descripción</th>
-                  <th style={{width:230}}>Acciones</th>
+                  <th style={{ width: 260 }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -282,7 +337,11 @@ export default function ComprasList() {
                   const id = c.id_compra ?? c.id;
                   const estado = c.estado_nombre ?? "";
                   const estadoKey = lower(estado);
-                  const isTerminal = TERMINAL.has(estadoKey);
+                  const pagado = (c.com_pagado ?? 2) === 1;
+                  const isTerminal = TERMINAL.has(estadoKey) || pagado;
+
+                  const puedeCobrar =
+                    !pagado && estadoKey === "recibida"; // solo recibida y no pagada
 
                   return (
                     <tr key={id}>
@@ -291,25 +350,50 @@ export default function ComprasList() {
                       <td>{c.empleado_nombre ?? "-"}</td>
                       <td>{c.proveedor_nombre ?? "-"}</td>
                       <td>{estado || "-"}</td>
+                      <td>{pagado ? "Sí" : "No"}</td>
                       <td>{fmtMoney(c.com_monto)}</td>
                       <td>{c.com_descripcion ?? "-"}</td>
-                      <td style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+                      <td
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          flexWrap: "wrap",
+                        }}
+                      >
                         <Link
-                            to={`/compras/detalles/${id}`}
-                            className="btn btn-secondary"
-                            title="Ver detalle de renglones"
-                          >
-                            Ver detalles
-                          </Link>
+                          to={`/compras/detalles/${id}`}
+                          className="btn btn-secondary"
+                          title="Ver detalle de renglones"
+                        >
+                          Ver detalles
+                        </Link>
 
                         <Link
                           to={`/compras/editar/${id}`}
                           className="btn btn-secondary"
-                          style={{opacity: isTerminal ? .5 : 1, pointerEvents: isTerminal ? "none" : "auto"}}
-                          title={isTerminal ? "No editable en estado terminal" : "Editar"}
+                          style={{
+                            opacity: isTerminal ? 0.5 : 1,
+                            pointerEvents: isTerminal ? "none" : "auto",
+                          }}
+                          title={
+                            isTerminal
+                              ? "No editable en estado terminal o pagada"
+                              : "Editar"
+                          }
                         >
                           Editar
                         </Link>
+
+                        {puedeCobrar && (
+                          <Link
+                            to={`/cobros/registrar/${id}`}
+                            className="btn btn-pay"
+                            title="Registrar pago/cobro de la compra"
+                          >
+                            Cobrar
+                          </Link>
+                        )}
+
                         <button
                           className="btn btn-receive"
                           onClick={() => handleRecibir(c)}
@@ -318,6 +402,7 @@ export default function ComprasList() {
                         >
                           Recibir
                         </button>
+
                         <button
                           className="btn btn-cancel"
                           onClick={() => handleCancelar(c)}
@@ -332,7 +417,9 @@ export default function ComprasList() {
                 })}
                 {!rows.length && (
                   <tr>
-                    <td colSpan={8} style={{textAlign:"center", opacity:.7}}>Sin resultados</td>
+                    <td colSpan={9} style={{ textAlign: "center", opacity: 0.7 }}>
+                      Sin resultados
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -341,11 +428,37 @@ export default function ComprasList() {
 
           {/* Paginación */}
           <div className="paginate">
-            <button className="btn" onClick={() => setPage(1)} disabled={pageSafe <= 1}>«</button>
-            <button className="btn" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={pageSafe <= 1}>‹</button>
-            <span>Página {pageSafe} de {totalPages}</span>
-            <button className="btn" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={pageSafe >= totalPages}>›</button>
-            <button className="btn" onClick={() => setPage(totalPages)} disabled={pageSafe >= totalPages}>»</button>
+            <button
+              className="btn"
+              onClick={() => setPage(1)}
+              disabled={pageSafe <= 1}
+            >
+              «
+            </button>
+            <button
+              className="btn"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={pageSafe <= 1}
+            >
+              ‹
+            </button>
+            <span>
+              Página {pageSafe} de {totalPages}
+            </span>
+            <button
+              className="btn"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={pageSafe >= totalPages}
+            >
+              ›
+            </button>
+            <button
+              className="btn"
+              onClick={() => setPage(totalPages)}
+              disabled={pageSafe >= totalPages}
+            >
+              »
+            </button>
           </div>
         </>
       )}
@@ -372,9 +485,11 @@ const styles = `
 .btn-receive:disabled { opacity:.5; cursor:not-allowed; }
 .btn-cancel { background:#dc2626; color:#fff; }
 .btn-cancel:disabled { opacity:.5; cursor:not-allowed; }
+.btn-pay { background:#fbbf24; color:#111827; }
 
 .paginate { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:10px; }
 `;
+
 
 
 

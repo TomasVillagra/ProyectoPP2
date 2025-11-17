@@ -5,9 +5,12 @@ import Login from "./pages/Login";
 import Home from "./pages/Home";
 
 // Otras secciones
+  
+import CobroRegistrar from "./pages/cobros/CobroRegistrar";
+import CajaPanel from "./pages/caja/CajaPanel";
+import MovimientosCajaList from "./pages/caja/MovimientosCajaList";
+import CajaHistorial from "./pages/caja/CajaHistorial";
 
-
-import CajaPage from "./pages/CajaPage";
 import InventarioList from "./pages/inventario/InventarioList";
 import InsumoRegistrar from "./pages/inventario/InsumoRegistrar";
 import InsumoEditar from "./pages/inventario/InsumoEditar";
@@ -65,7 +68,15 @@ export default function App() {
 
         <Route path="/ventas" element={<ProtectedRoute><VentasList /></ProtectedRoute>} />
         <Route path="/ventas/:id" element={<ProtectedRoute><VentaDetalle /></ProtectedRoute>} />
-        <Route path="/caja" element={<ProtectedRoute><CajaPage /></ProtectedRoute>} />
+        <Route path="/caja" element={<ProtectedRoute><CajaPanel /></ProtectedRoute>} />
+        <Route path="/cobros/registrar/:id_venta" element={<ProtectedRoute><CobroRegistrar /></ProtectedRoute>} />
+        <Route path="/cobros/:id_venta" element={<CobroRegistrar />} />
+        <Route path="/caja/historial" element={ <ProtectedRoute> <CajaHistorial /></ProtectedRoute>}
+/>
+
+
+    
+        <Route path="/caja/movimientos" element={<ProtectedRoute><MovimientosCajaList /></ProtectedRoute>} />
         <Route path="/inventario" element={<ProtectedRoute><InventarioList /></ProtectedRoute>} />
         <Route path="/inventario/registrar" element={<ProtectedRoute><InsumoRegistrar /></ProtectedRoute>} />
         <Route path="/inventario/editar/:id" element={<ProtectedRoute><InsumoEditar /></ProtectedRoute>} />

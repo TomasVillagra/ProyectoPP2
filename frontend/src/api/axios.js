@@ -4,7 +4,7 @@ import axios from "axios";
 // Detecta el backend (usa tu .env o el host local)
 const API_BASE =
   process.env.REACT_APP_API_BASE_URL ||
-  `http://${window.location.hostname}:8000`;
+  `http://${window.location.hostname}:8000/api`;
 
 // Instancia principal de axios
 export const api = axios.create({

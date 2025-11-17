@@ -8,7 +8,7 @@
 from django.conf import settings
 from django.db import models
 from django.core.validators import MinValueValidator
-
+import math
 class AuthGroup(models.Model):
     name = models.CharField(unique=True, max_length=150)
 
@@ -151,6 +151,8 @@ class Compras(models.Model):
     com_fecha_hora = models.DateTimeField()
     com_monto = models.DecimalField(max_digits=12, decimal_places=2)
     com_descripcion = models.CharField(max_length=200, blank=True, null=True)
+    com_pagado = models.PositiveSmallIntegerField(db_column='com_pagado', default=2)
+
     id_proveedor = models.ForeignKey(
         'Proveedores',
         models.PROTECT,
@@ -158,6 +160,14 @@ class Compras(models.Model):
         blank=True, null=True,
         related_name='compras'
     )
+    id_metodo_pago = models.ForeignKey(
+    'MetodoDePago',
+    on_delete=models.SET_NULL,
+    null=True,
+    blank=True,
+    related_name='%(class)s_metodo_pago',
+    db_column='id_metodo_pago'
+)
     class Meta:
         managed = False
         db_table = 'compras'
@@ -352,6 +362,22 @@ class Insumos(models.Model):
     id_estado_insumo = models.ForeignKey(EstadoInsumos, models.DO_NOTHING, db_column='id_estado_insumo')
     ins_nombre = models.CharField(unique=True, max_length=120)
     ins_unidad = models.CharField(max_length=20)
+    ins_cantidad = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(0)],
+        help_text="Cantidad de unidades compradas (fardos, bolsas, cajas...).",
+    )
+    ins_capacidad = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(0)],
+        help_text="Capacidad de cada unidad (ej. 6 botellas por fardo, 2 kg por bolsa...).",
+    )
     ins_stock_actual = models.DecimalField(max_digits=12, decimal_places=3)
     ins_punto_reposicion = models.DecimalField(max_digits=12, decimal_places=3)
     ins_stock_min = models.DecimalField(max_digits=12, decimal_places=3)
@@ -362,7 +388,37 @@ class Insumos(models.Model):
         db_table = 'insumos'
 
 
+    @property
+    def insumos_completos(self):
+        """
+        Fardos ENTEROS que podés armar con el stock actual.
+        Ej.: capacidad 6, stock 13 → 2 fardos completos (12) y 1 suelto.
+        """
+        if not self.ins_capacidad or self.ins_capacidad == 0 or self.ins_stock_actual is None:
+            return None
+        return int(self.ins_stock_actual // self.ins_capacidad)
 
+    @property
+    def unidades_sueltas(self):
+        """
+        Unidades que sobran luego de armar todos los fardos completos.
+        Ej.: capacidad 6, stock 13 → 1 unidad suelta.
+        """
+        if not self.ins_capacidad or self.ins_capacidad == 0 or self.ins_stock_actual is None:
+            return None
+        return self.ins_stock_actual - (self.insumos_completos * self.ins_capacidad)
+
+    @property
+    def insumos_equivalentes(self):
+        """
+        Fardos 'equivalentes' REDONDEANDO PARA ARRIBA.
+        Ejemplo que vos diste:
+          cantidad = 2, capacidad = 6 → stock total = 12
+          si el stock actual llega a 5 → math.ceil(5/6) = 1 fardo equivalente.
+        """
+        if not self.ins_capacidad or self.ins_capacidad == 0 or self.ins_stock_actual is None:
+            return None
+        return math.ceil(float(self.ins_stock_actual) / float(self.ins_capacidad))
 
 
 
@@ -494,6 +550,14 @@ class Ventas(models.Model):
     ven_fecha_hora = models.DateTimeField()
     ven_monto = models.DecimalField(max_digits=12, decimal_places=2)
     ven_descripcion = models.CharField(max_length=200, blank=True, null=True)
+    id_metodo_pago = models.ForeignKey(
+    'MetodoDePago',
+    on_delete=models.SET_NULL,
+    null=True,
+    blank=True,
+    related_name='%(class)s_metodo_pago',
+    db_column='id_metodo_pago'
+)
 
     class Meta:
         managed = False

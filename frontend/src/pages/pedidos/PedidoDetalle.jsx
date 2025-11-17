@@ -1,96 +1,157 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
+import { api } from "../../api/axios";
+
+function fmtDate(dt) {
+  if (!dt) return "-";
+  try {
+    const d = new Date(dt);
+    if (isNaN(d.getTime())) return String(dt).replace("T", " ").slice(0, 19);
+    return d.toLocaleString();
+  } catch {
+    return String(dt);
+  }
+}
 
 export default function PedidoDetalle() {
   const { id } = useParams();
   const [pedido, setPedido] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [msg, setMsg] = useState("");
 
   useEffect(() => {
-    const fetchPedido = async () => {
+    (async () => {
       try {
-        const response = await api.get(`/api/pedidos/${id}/`);
-        setPedido(response.data);
-      } catch (error) {
-        console.error("Error cargando pedido:", error);
+        const res = await api.get(`/api/pedidos/${id}/`);
+        setPedido(res.data);
+      } catch (e) {
+        console.error(e);
+        setMsg("No se pudo cargar el pedido.");
       } finally {
         setLoading(false);
       }
-    };
-    fetchPedido();
+    })();
   }, [id]);
 
-  if (loading) return <div className="text-white text-center mt-10">Cargando...</div>;
-  if (!pedido) return <div className="text-red-500 text-center mt-10">No se encontró el pedido.</div>;
+  if (loading) return <p>Cargando...</p>;
+  if (msg) return <p style={{ color: "#facc15" }}>{msg}</p>;
+  if (!pedido) return <p>No se encontró el pedido.</p>;
+
+  // Normalizar posibles nombres de campos
+  const detalles = Array.isArray(pedido.detalles)
+    ? pedido.detalles
+    : Array.isArray(pedido.items)
+    ? pedido.items
+    : Array.isArray(pedido.lineas)
+    ? pedido.lineas
+    : [];
 
   return (
     <DashboardLayout>
-      <div className="p-6 text-white bg-[#1f1f1f] min-h-screen">
-        <h1 className="text-3xl font-semibold mb-6 text-center">Detalle del Pedido #{pedido.id_pedido}</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <h2 style={{ margin: 0, color: "#fff" }}>Pedido #{pedido.id_pedido ?? pedido.id}</h2>
+        <Link className="btn btn-secondary" to="/pedidos">Volver a Pedidos</Link>
+      </div>
 
-        <div className="bg-[#2a2a2a] p-5 rounded-xl shadow-md mb-8">
-          <h2 className="text-xl font-semibold mb-4">Información General</h2>
-          <div className="grid grid-cols-2 gap-4 text-gray-300">
-            <p><strong>Mesa:</strong> {pedido.mesa_numero ?? "Sin mesa"}</p>
-            <p><strong>Empleado:</strong> {pedido.empleado_nombre ?? "—"}</p>
-            <p><strong>Cliente:</strong> {pedido.cliente_nombre ?? "—"}</p>
-            <p><strong>Estado:</strong> {pedido.estado_nombre ?? "—"}</p>
-            <p><strong>Tipo:</strong> {pedido.tipo_nombre ?? "—"}</p>
-            <p><strong>Inicio:</strong> {new Date(pedido.ped_fecha_hora_ini).toLocaleString()}</p>
-            <p><strong>Fin:</strong> {pedido.ped_fecha_hora_fin ? new Date(pedido.ped_fecha_hora_fin).toLocaleString() : "En curso"}</p>
-            <p><strong>Descripción:</strong> {pedido.ped_descripcion ?? "—"}</p>
+      <div className="card">
+        <div className="grid">
+          <div>
+            <div className="muted">Mesa</div>
+            <div>{pedido.mesa_numero ?? pedido.mesa ?? "Sin mesa"}</div>
           </div>
-        </div>
-
-        <div className="bg-[#2a2a2a] p-5 rounded-xl shadow-md">
-          <h2 className="text-xl font-semibold mb-4">Detalle de Platos</h2>
-          <table className="w-full border border-gray-700 text-gray-300 rounded-xl">
-            <thead className="bg-[#3a3a3a] text-gray-200">
-              <tr>
-                <th className="px-4 py-2 text-left">Plato</th>
-                <th className="px-4 py-2 text-center">Cantidad</th>
-                <th className="px-4 py-2 text-center">Precio Unitario</th>
-                <th className="px-4 py-2 text-center">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pedido.detalles && pedido.detalles.length > 0 ? (
-                pedido.detalles.map((d) => (
-                  <tr key={d.id_detalle_pedido} className="hover:bg-[#383838]">
-                    <td className="px-4 py-2">{d.plato_nombre}</td>
-                    <td className="px-4 py-2 text-center">{d.detped_cantidad}</td>
-                    <td className="px-4 py-2 text-center">${d.plato_precio?.toFixed(2)}</td>
-                    <td className="px-4 py-2 text-center text-green-400">${d.subtotal?.toFixed(2)}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="4" className="text-center py-4 text-gray-400">
-                    No hay platos registrados para este pedido.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-
-          <div className="flex justify-end mt-6">
-            <p className="text-xl font-semibold">
-              Total: <span className="text-green-400">${pedido.total?.toFixed(2)}</span>
-            </p>
+          <div>
+            <div className="muted">Empleado</div>
+            <div>{pedido.empleado_nombre ?? pedido.empleado ?? "—"}</div>
           </div>
-        </div>
-
-        <div className="flex justify-center mt-8">
-          <Link
-            to="/pedidos"
-            className="bg-red-600 hover:bg-red-700 transition-colors px-6 py-2 rounded-lg text-white font-semibold"
-          >
-            Volver a Pedidos
-          </Link>
+          <div>
+            <div className="muted">Cliente</div>
+            <div>{pedido.cliente_nombre ?? pedido.cliente ?? "—"}</div>
+          </div>
+          <div>
+            <div className="muted">Estado</div>
+            <div>{pedido.estado_nombre ?? pedido.estado ?? "—"}</div>
+          </div>
+          <div>
+            <div className="muted">Tipo</div>
+            <div>{pedido.tipo_nombre ?? pedido.tipo ?? "—"}</div>
+          </div>
+          <div>
+            <div className="muted">Inicio</div>
+            <div>{fmtDate(pedido.ped_fecha_hora_ini ?? pedido.fecha_hora_ini)}</div>
+          </div>
+          <div>
+            <div className="muted">Fin</div>
+            <div>{pedido.ped_fecha_hora_fin ? fmtDate(pedido.ped_fecha_hora_fin) : "En curso"}</div>
+          </div>
+          <div>
+            <div className="muted">Descripción</div>
+            <div>{pedido.ped_descripcion ?? pedido.descripcion ?? "—"}</div>
+          </div>
         </div>
       </div>
+
+      <h3 style={{ marginTop: 18, color: "#fff" }}>Detalle de Platos</h3>
+      <div className="table-wrap">
+        <table className="table-dark">
+          <thead>
+            <tr>
+              <th>Plato</th>
+              <th style={{ width: 120, textAlign: "right" }}>Cantidad</th>
+              {/* Si querés mostrar alguna nota por ítem, descomentá: */}
+              {/* <th>Notas</th> */}
+            </tr>
+          </thead>
+          <tbody>
+            {detalles.length ? (
+              detalles.map((d, i) => {
+                const nombre =
+                  d.plato_nombre ??
+                  d.plato?.pla_nombre ??
+                  d.plato?.plt_nombre ??
+                  d.nombre ??
+                  "(sin nombre)";
+                const cantidad = d.detped_cantidad ?? d.cantidad ?? d.qty ?? 0;
+                const notas = d.nota ?? d.notas ?? d.observacion ?? d.observaciones ?? null;
+
+                return (
+                  <tr key={i}>
+                    <td>{nombre}</td>
+                    <td style={{ textAlign: "right" }}>{cantidad}</td>
+                    {/* {notas ? <td>{notas}</td> : <td>—</td>} */}
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td colSpan="2" style={{ textAlign: "center" }}>
+                  Sin platos registrados
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <style>{styles}</style>
     </DashboardLayout>
   );
 }
+
+const styles = `
+.card {
+  background:#1b1b1e; color:#eaeaea; border:1px solid #2a2a2a; border-radius:12px; padding:14px; margin-bottom:14px;
+}
+.grid {
+  display:grid; gap:10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.muted { color:#9ca3af; font-size:12px; margin-bottom:4px; }
+.table-wrap { overflow:auto; }
+.table-dark { width:100%; border-collapse: collapse; background:#121212; color:#eaeaea; }
+.table-dark th, .table-dark td { border:1px solid #232323; padding:10px; vertical-align:top; }
+.btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
+.btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
+`;
+
+

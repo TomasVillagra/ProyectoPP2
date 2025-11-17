@@ -522,16 +522,28 @@ export default function PedidoEditar() {
             <tbody>
               {detalles.map((row, idx) => {
                 const e = rowErrors[idx] || {};
+
+                // Platos ya usados en OTROS renglones
+                const usados = new Set(
+                  detalles
+                    .map((d, i2) => (i2 === idx ? null : Number(d.id_plato)))
+                    .filter((v) => v)
+                );
+                const opciones = platosFiltrados.filter((p) => {
+                  const idp = getPlatoId(p);
+                  if (!idp) return false;
+                  if (Number(row.id_plato) === idp) return true; // mantener el que ya está seleccionado
+                  return !usados.has(idp);
+                });
+
                 return (
                   <tr key={idx}>
                     <td>
                       <select value={row.id_plato} onChange={(ev) => onRowChange(idx, "id_plato", ev.target.value)} disabled={isTerminal}>
                         <option value="">— Seleccioná plato (con receta) —</option>
-                        {platos
-                          .filter((p) => platosConReceta.has(getPlatoId(p)))
-                          .map((p) => (
-                            <option key={getPlatoId(p)} value={getPlatoId(p)}>{platoLabel(p)}</option>
-                          ))}
+                        {opciones.map((p) => (
+                          <option key={getPlatoId(p)} value={getPlatoId(p)}>{platoLabel(p)}</option>
+                        ))}
                       </select>
                       {e.id_plato && <small className="err-inline">{e.id_plato}</small>}
                     </td>
@@ -567,7 +579,7 @@ export default function PedidoEditar() {
         </div>
 
         <div style={{ marginTop: 8, marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <button type="button" className="btn btn-secondary" onClick={() => setDetalles((p) => [...p, { id_plato: "", detped_cantidad: "" }])} disabled={isTerminal}>
+          <button type="button" className="btn btn-secondary" onClick={addRow} disabled={isTerminal}>
             Agregar renglón
           </button>
           <div style={{ color: "#eaeaea" }}>
@@ -600,6 +612,7 @@ textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 
 
 

@@ -1,4 +1,5 @@
 from rest_framework.permissions import IsAuthenticated
+from rest_framework import viewsets, status
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 from decimal import Decimal
 from django.utils import timezone
@@ -8,10 +9,17 @@ from rest_framework import status
 from django.db import transaction
 from django.db.models import F
 from django.db import connection
+from django.db.models import Sum
+from datetime import datetime
+from django.utils.timezone import make_aware
+from rest_framework.views import APIView
+from django.db.models import Max, Sum, Case, When, Value, DecimalField
+from rest_framework.exceptions import PermissionDenied
+
 
 from pizzeria.models import (
     Empleados, Clientes, Insumos, Platos, Pedidos,
-    Ventas, MovimientosCaja, TipoPedidos, EstadoPedidos, MetodoDePago,
+    Ventas, MovimientosCaja,TipoMovimientoCaja, TipoPedidos, EstadoPedidos, MetodoDePago,
     CargoEmpleados, EstadoEmpleados,
     Proveedores, EstadoProveedores, CategoriaProveedores,
     Recetas, DetalleRecetas, CategoriaPlatos, EstadoReceta,
@@ -21,7 +29,7 @@ from pizzeria.models import (
 
 from .serializers import (
     EmpleadosSerializer, ClienteSerializer, InsumoSerializer, PlatoSerializer,
-    PedidoSerializer, VentaSerializer, MovimientoCajaSerializer, TipoPedidoSerializer,
+    PedidoSerializer, VentaSerializer, MovimientoCajaSerializer,MovimientosCajaCreateSerializer, TipoPedidoSerializer,
     EstadoPedidoSerializer, MetodoPagoSerializer,
     CargoSerializer, EstadoEmpleadoSerializer,
     ProveedorSerializer, EstadoProveedorSerializer, CategoriaProveedorSerializer,
@@ -31,7 +39,91 @@ from .serializers import (
     EstadoMesasSerializer,EstadoVentaSerializer,DetalleVentaSerializer,
 
 )
+# ── Constantes de estados y helpers de caja/fechas
+# ── IDs FIJOS cargados en tu BD ───────────────────────────────────────────────
+ESTADO_PEDIDO = {
+    "EN_PROCESO": 1,
+    "ENTREGADO":  2,
+    "CANCELADO":  3,
+    "FINALIZADO": 4,
+}
 
+TIPO_MOV_CAJA = {
+    "APERTURA": 1,
+    "INGRESO":  2,
+    "EGRESO":   3,
+    "CIERRE":   4,
+}
+
+METODO_PAGO = {
+    "EFECTIVO":      1,
+    "TARJETA":       2,
+    "TRANSFERENCIA": 3,
+}
+def _parse_fecha(s: str):
+    # acepta "YYYY-MM-DD" o "YYYY-MM-DD HH:MM"
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return make_aware(datetime.strptime(s, fmt))
+        except Exception:
+            pass
+    return None
+
+def _rango_desde_hasta(request):
+    desde = _parse_fecha(request.query_params.get("desde")) or _parse_fecha(request.data.get("desde"))
+    hasta = _parse_fecha(request.query_params.get("hasta")) or _parse_fecha(request.data.get("hasta"))
+    return desde, hasta
+
+def _tipo_movimiento(nombre:str):
+    # Crea si no existe (Ingreso / Egreso / Apertura / Cierre)
+    from pizzeria.models import TipoMovimientoCaja
+    obj, _ = TipoMovimientoCaja.objects.get_or_create(tmovc_nombre__iexact=nombre, defaults={"tmovc_nombre": nombre})
+    # Si usamos get_or_create con __iexact, arriba no crea. Forzamos:
+    if isinstance(obj, tuple):
+        obj = TipoMovimientoCaja.objects.filter(tmovc_nombre__iexact=nombre).first()
+        if not obj:
+            obj = TipoMovimientoCaja.objects.create(tmovc_nombre=nombre)
+    return obj
+
+def caja_esta_abierta_hoy():
+    """
+    Devuelve True si el ÚLTIMO movimiento de caja de HOY
+    NO es un cierre. Si no hay movimientos hoy, se considera cerrada.
+    """
+    hoy = timezone.localdate()
+    inicio = timezone.make_aware(
+        timezone.datetime.combine(hoy, timezone.datetime.min.time())
+    )
+    fin = timezone.make_aware(
+        timezone.datetime.combine(hoy, timezone.datetime.max.time())
+    )
+
+    movimientos_hoy = (
+        MovimientosCaja.objects
+        .filter(mv_fecha_hora__range=(inicio, fin))
+        .order_by("mv_fecha_hora")
+    )
+
+    ultimo = movimientos_hoy.last()
+    if not ultimo:
+        # Nunca se abrió caja hoy
+        return False
+
+    # Si el último movimiento del día es CIERRE → caja cerrada
+    return ultimo.id_tipo_movimiento_caja_id != TIPO_MOV_CAJA["CIERRE"]
+
+
+def asegurar_caja_abierta():
+    """
+    Lanza un 403 si la caja está cerrada.
+    Usar al inicio de cualquier acción que MODIFIQUE pedidos/ventas.
+    """
+    if not caja_esta_abierta_hoy():
+        raise PermissionDenied(
+            "La caja está CERRADA. Solo se permite consultar pedidos y ventas."
+        )
 # ──────────────────────────────────────────────────────────────────────────────
 # Catálogos (para selects)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -120,10 +212,67 @@ class InsumoViewSet(ModelViewSet):
     serializer_class = InsumoSerializer
     permission_classes = [IsAuthenticated]
 
+
 class PlatoViewSet(ModelViewSet):
     queryset = Platos.objects.all().order_by("-id_plato")
     serializer_class = PlatoSerializer
     permission_classes = [IsAuthenticated]
+    
+    @action(detail=True, methods=["post"])
+    def producir(self, request, pk=None):
+        try:
+            cantidad = Decimal(str(request.data.get("cantidad", "0")))
+        except Exception:
+            return Response({"detail": "Cantidad inválida."}, status=400)
+        if cantidad <= 0:
+            return Response({"detail": "Cantidad debe ser > 0."}, status=400)
+
+        plato = self.get_object()
+
+        # >>> TODO: ajustá nombres reales de tus modelos/campos:
+        # Recetas, DetalleReceta, campo "detr_cant_unid", stock de insumos ("ins_stock_actual")
+        # y stock de plato ("plt_stock" o similar). Este es el esqueleto:
+
+        from ..models import Recetas, DetalleRecetas, Insumos 
+
+
+        receta = Recetas.objects.filter(id_plato=plato).first()
+        if not receta:
+            return Response({"detail": "El plato no tiene receta definida."}, status=400)
+
+        dets = DetalleRecetas.objects.filter(id_receta=receta)
+
+        requeridos = []
+        for det in dets:
+            por_plato = getattr(det, "detr_cant_unid", 0) or Decimal("0")
+            req = por_plato * cantidad
+            if req <= 0:
+                continue
+
+            ins = det.id_insumo
+            disp = Decimal(getattr(ins, "ins_stock_actual", 0) or 0)
+
+            if disp - req < 0:
+                return Response(
+                    {"detail": f"Insumo insuficiente: {ins.ins_nombre}. Requiere {req}, disponible {disp}."},
+                    status=400
+                )
+            requeridos.append((ins, req, disp))
+
+        with transaction.atomic():
+            # Descontar insumos
+            for ins, req, disp in requeridos:
+                nuevo = disp - req
+                ins.ins_stock_actual = nuevo  # ajustá si tu campo es otro
+                ins.save(update_fields=["ins_stock_actual"])
+
+            # Sumar stock del plato
+            stock_actual = Decimal(getattr(plato, "plt_stock", 0) or 0)
+            setattr(plato, "plt_stock", stock_actual + cantidad)  # ajustá si tu campo es otro
+            plato.save(update_fields=["plt_stock"])
+
+        return Response({"detail": "Producción realizada.", "cantidad": f"{cantidad}"}, status=201)
+    
 
 class PedidoViewSet(ModelViewSet):
     queryset = (
@@ -148,6 +297,7 @@ class PedidoViewSet(ModelViewSet):
     @action(detail=True, methods=["post"], url_path="descontar_insumos")
     @transaction.atomic
     def descontar_insumos(self, request, pk=None):
+        asegurar_caja_abierta()
         """
         Lógica con trazabilidad:
         1) Despacha primero desde el stock del PLATO (Platos.plt_stock).
@@ -251,6 +401,7 @@ class PedidoViewSet(ModelViewSet):
     
     @action(detail=True, methods=["post"], url_path="generar_venta")
     def generar_venta(self, request, pk=None):
+        asegurar_caja_abierta()
 
     # 1) Pedido
         try:
@@ -340,6 +491,116 @@ class PedidoViewSet(ModelViewSet):
 
             return Response(data, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=["post"], url_path="cobrar-y-finalizar")
+    @transaction.atomic
+    def cobrar_y_finalizar(self, request, pk=None):
+        asegurar_caja_abierta()
+        """
+        Body: { "id_metodo_pago": <1|2|3> }
+        - Cambia pedido a FINALIZADO
+        - Genera la Venta con sus detalles (sin tocar columnas generadas)
+        - Crea el Movimiento de Caja (Ingreso) con el monto total
+        """
+        from decimal import Decimal
+        from django.db import connection
+        from django.utils import timezone
+        from pizzeria.models import (
+            DetallePedidos, Platos, Ventas, DetalleVentas,
+            MetodoDePago, EstadoVentas, MovimientosCaja
+        )
+
+        pedido = self.get_object()
+
+        # Validaciones básicas
+        if pedido.id_estado_pedido_id == ESTADO_PEDIDO["CANCELADO"]:
+            return Response({"detail": "No se puede cobrar un pedido CANCELADO."}, status=400)
+
+        id_metodo_pago = request.data.get("id_metodo_pago")
+        if not id_metodo_pago or not MetodoDePago.objects.filter(pk=id_metodo_pago).exists():
+            return Response({"detail": "Método de pago inválido."}, status=400)
+
+        dets = (DetallePedidos.objects
+                .select_related("id_plato")
+                .filter(id_pedido=pedido.id_pedido))
+        if not dets.exists():
+            return Response({"detail": "El pedido no tiene ítems."}, status=400)
+
+        # Total e items
+        total = Decimal("0.00")
+        items = []
+        for det in dets:
+            plato = det.id_plato
+            if getattr(plato, "plt_precio", None) is None:
+                return Response(
+                    {"detail": f"El plato '{plato.plt_nombre}' no tiene precio definido."}, status=400
+                )
+            precio = Decimal(str(plato.plt_precio))
+            cantidad = int(det.detped_cantidad or 0)
+            if cantidad <= 0:
+                return Response({"detail": "Cantidad inválida en un ítem."}, status=400)
+            total += (precio * Decimal(cantidad))
+            items.append((plato.id_plato, precio, cantidad))
+
+        # Estado default de venta
+        estven = EstadoVentas.objects.order_by("id_estado_venta").first()
+
+        # Cerrar pedido
+        pedido.id_estado_pedido_id = ESTADO_PEDIDO["FINALIZADO"]
+        pedido.ped_fecha_hora_fin = timezone.now()
+        pedido.save(update_fields=["id_estado_pedido", "ped_fecha_hora_fin"])
+
+        # Cabecera de Venta
+        venta = Ventas.objects.create(
+            id_cliente_id=pedido.id_cliente_id,
+            id_empleado_id=pedido.id_empleado_id,
+            id_estado_venta_id=estven.id_estado_venta if estven else None,
+            ven_fecha_hora=pedido.ped_fecha_hora_fin,
+            ven_monto=total,
+            ven_descripcion=f"Venta de pedido #{pedido.id_pedido}",
+            id_metodo_pago_id=id_metodo_pago,  # FK ya agregada por tus migraciones
+        )
+
+        # Detalles (sin detven_subtotal si es columna generada por MySQL)
+        tabla = DetalleVentas._meta.db_table
+        sql = f"INSERT INTO {tabla} (id_venta, id_plato, detven_precio_uni, detven_cantidad) VALUES (%s, %s, %s, %s)"
+        params = [(venta.id_venta, pid, precio, cant) for (pid, precio, cant) in items]
+        with connection.cursor() as cur:
+            cur.executemany(sql, params)
+
+        # Movimiento de Caja (Ingreso)
+        tipo_ingreso = _tipo_movimiento("Ingreso")
+        MovimientosCaja.objects.create(
+            id_empleado_id=pedido.id_empleado_id,
+            id_metodo_pago_id=id_metodo_pago,
+            id_tipo_movimiento_caja_id=tipo_ingreso.id_tipo_movimiento_caja,
+            id_venta_id=venta.id_venta,
+            mv_monto=venta.ven_monto,
+            mv_descripcion=f"Ingreso por venta #{venta.id_venta}",
+        )
+
+        from .serializers import VentaSerializer, DetalleVentaSerializer
+        data = VentaSerializer(venta).data
+        detqs = DetalleVentas.objects.filter(id_venta=venta.id_venta)
+        data["detalles"] = DetalleVentaSerializer(detqs, many=True).data
+        return Response(data, status=201)
+        # ── Bloqueo general de escritura ────────────────────────────
+    def create(self, request, *args, **kwargs):
+        asegurar_caja_abierta()
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        asegurar_caja_abierta()
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        asegurar_caja_abierta()
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        asegurar_caja_abierta()
+        return super().destroy(request, *args, **kwargs)
+
+
 # Estados de venta (catálogo)
 class EstadoVentaViewSet(ReadOnlyModelViewSet):
     queryset = EstadoVentas.objects.all().order_by("id_estado_venta")
@@ -351,6 +612,22 @@ class VentaViewSet(ModelViewSet):
     queryset = Ventas.objects.all().order_by("-id_venta")
     serializer_class = VentaSerializer
     permission_classes = [IsAuthenticated]
+    # ── Bloqueo general de escritura ────────────────────────────
+    def create(self, request, *args, **kwargs):
+        asegurar_caja_abierta()
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        asegurar_caja_abierta()
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        asegurar_caja_abierta()
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        asegurar_caja_abierta()
+        return super().destroy(request, *args, **kwargs)
 
 # Detalle de venta
 class DetalleVentaViewSet(ModelViewSet):
@@ -370,12 +647,84 @@ class DetalleVentaViewSet(ModelViewSet):
         if id_venta:
             qs = qs.filter(id_venta_id=id_venta)
         return qs
-    
+
 
 class MovimientoCajaViewSet(ModelViewSet):
     queryset = MovimientosCaja.objects.all().order_by("-id_movimiento_caja")
     serializer_class = MovimientoCajaSerializer
     permission_classes = [IsAuthenticated]
+
+    # POST /api/movimientos-caja/abrir  { "monto_inicial": 1000.00 }
+    @action(detail=False, methods=["post"], url_path="abrir")
+    @transaction.atomic
+    def abrir(self, request):
+        from decimal import Decimal
+        monto_inicial = Decimal(str(request.data.get("monto_inicial", "0")))
+        if monto_inicial < 0:
+            return Response({"detail": "monto_inicial inválido."}, status=400)
+
+        tipo = _tipo_movimiento("Apertura")
+        mov = MovimientosCaja.objects.create(
+            id_empleado_id=getattr(getattr(request.user, "empleados", None), "id_empleado", None),
+            id_tipo_movimiento_caja_id=tipo.id_tipo_movimiento_caja,
+            mv_monto=monto_inicial,
+            mv_descripcion="Apertura de caja",
+        )
+        return Response(self.get_serializer(mov).data, status=201)
+
+    # POST /api/movimientos-caja/cerrar  { "observacion": "..." }
+    @action(detail=False, methods=["post"], url_path="cerrar")
+    @transaction.atomic
+    def cerrar(self, request):
+        tipo = _tipo_movimiento("Cierre")
+        mov = MovimientosCaja.objects.create(
+            id_empleado_id=getattr(getattr(request.user, "empleados", None), "id_empleado", None),
+            id_tipo_movimiento_caja_id=tipo.id_tipo_movimiento_caja,
+            mv_monto=0,
+            mv_descripcion=request.data.get("observacion") or "Cierre de caja",
+        )
+        return Response(self.get_serializer(mov).data, status=201)
+
+    # GET /api/movimientos-caja/resumen?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+    @action(detail=False, methods=["get"], url_path="resumen")
+    def resumen(self, request):
+        desde, hasta = _rango_desde_hasta(request)
+        qs = MovimientosCaja.objects.all()
+        if desde:
+            qs = qs.filter(mv_fecha_hora__gte=desde)
+        if hasta:
+            qs = qs.filter(mv_fecha_hora__lte=hasta)
+
+        total = qs.aggregate(total=Sum("mv_monto"))["total"] or 0
+        return Response({"total": total}, status=200)
+
+    # GET /api/movimientos-caja/arqueo?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+    # Devuelve totales por método de pago y total general
+    @action(detail=False, methods=["get"], url_path="arqueo")
+    def arqueo(self, request):
+        desde, hasta = _rango_desde_hasta(request)
+        qs = (MovimientosCaja.objects
+              .select_related("id_metodo_pago")
+              .filter(id_tipo_movimiento_caja__tmovc_nombre__iexact="Ingreso"))
+        if desde:
+            qs = qs.filter(mv_fecha_hora__gte=desde)
+        if hasta:
+            qs = qs.filter(mv_fecha_hora__lte=hasta)
+
+        por_mp = (qs.values("id_metodo_pago__metpag_nombre")
+                    .annotate(monto=Sum("mv_monto"))
+                    .order_by("id_metodo_pago__metpag_nombre"))
+
+        total = qs.aggregate(total=Sum("mv_monto"))["total"] or 0
+
+        data = {
+            "metodos": [
+                {"metodo": r["id_metodo_pago__metpag_nombre"] or "Sin método", "monto": r["monto"] or 0}
+                for r in por_mp
+            ],
+            "total": total,
+        }
+        return Response(data, status=200)
 
 class TipoPedidoViewSet(ModelViewSet):
     queryset = TipoPedidos.objects.all().order_by("-id_tipo_pedido")
@@ -498,3 +847,429 @@ class ProveedorInsumoViewSet(ModelViewSet):
         if iid:
             qs = qs.filter(id_insumo_id=iid)
         return qs
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ESTADO DE CAJA (corrige nombres de campos y serializer)
+# ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# ESTADO DE CAJA
+# ──────────────────────────────────────────────────────────────────────────────
+class CajaEstadoView(APIView):
+    """
+    GET /api/caja/estado/
+    Devuelve:
+      {
+        "abierta": true|false,
+        "apertura": {...} | null,
+        "cierre": {...} | null,
+        "hoy_ingresos": "1234.56",
+        "hoy_egresos": "200.00",
+        "hoy_saldo": "1034.56"
+      }
+    """
+    def get(self, request):
+        hoy = timezone.localdate()
+        inicio = timezone.make_aware(
+            timezone.datetime.combine(hoy, timezone.datetime.min.time())
+        )
+        fin = timezone.make_aware(
+            timezone.datetime.combine(hoy, timezone.datetime.max.time())
+        )
+
+        ID_APERTURA = 1
+        ID_INGRESO  = 2
+        ID_EGRESO   = 3
+        ID_CIERRE   = 4
+
+        qs_hoy = MovimientosCaja.objects.filter(mv_fecha_hora__range=(inicio, fin))
+
+        # Último movimiento del día → define si la caja está abierta o cerrada
+        ultimo = qs_hoy.order_by("mv_fecha_hora").last()
+        if ultimo:
+            caja_abierta = (ultimo.id_tipo_movimiento_caja_id != ID_CIERRE)
+        else:
+            caja_abierta = False
+
+        apertura = (
+            qs_hoy.filter(id_tipo_movimiento_caja_id=ID_APERTURA)
+            .order_by("mv_fecha_hora")
+            .first()
+        )
+        cierre = (
+            qs_hoy.filter(id_tipo_movimiento_caja_id=ID_CIERRE)
+            .order_by("-mv_fecha_hora")
+            .first()
+        )
+
+        ingresos = (
+            qs_hoy.filter(id_tipo_movimiento_caja_id=ID_INGRESO)
+            .aggregate(s=Sum("mv_monto"))["s"] or 0
+        )
+        egresos = (
+            qs_hoy.filter(id_tipo_movimiento_caja_id=ID_EGRESO)
+            .aggregate(s=Sum("mv_monto"))["s"] or 0
+        )
+
+        from .serializers import MovimientoCajaSerializer
+
+        return Response({
+            "abierta": caja_abierta,
+            "apertura": MovimientoCajaSerializer(apertura).data if apertura else None,
+            "cierre": MovimientoCajaSerializer(cierre).data if cierre else None,
+            "hoy_ingresos": f"{ingresos:.2f}",
+            "hoy_egresos": f"{egresos:.2f}",
+            "hoy_saldo": f"{(ingresos - egresos):.2f}",
+        })
+
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# MOVIMIENTOS DE CAJA (corrige select_related, campos, empleado=usuario)
+# ──────────────────────────────────────────────────────────────────────────────
+class MovimientosCajaViewSet(viewsets.ModelViewSet):
+    queryset = (
+        MovimientosCaja.objects
+        .select_related("id_empleado", "id_tipo_movimiento_caja", "id_metodo_pago", "id_venta")
+        .all()
+        .order_by("-mv_fecha_hora")
+    )
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return MovimientosCajaCreateSerializer
+        return MovimientoCajaSerializer
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        data = request.data.copy()
+
+        # ── Empleado vinculado al usuario logueado ─────────────────────
+        empleado = Empleados.objects.filter(usuario=request.user).first()
+        if not empleado:
+            return Response(
+                {"detail": "No se encontró el empleado vinculado al usuario."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Normalizar tipo de movimiento ─────────────────────────────
+        tipo_id = int(
+            data.get("id_tipo_movimiento_caja")
+            or data.get("id_tipo_movimiento")
+            or data.get("id_tipo_mov")
+            or 0
+        )
+        data["id_tipo_movimiento_caja"] = tipo_id
+
+        ID_APERTURA = 1
+        ID_INGRESO  = 2
+        ID_EGRESO   = 3
+        ID_CIERRE   = 4
+
+        # ── Rango del día ─────────────────────────────────────────────
+        hoy = timezone.localdate()
+        inicio_dia = timezone.make_aware(
+            timezone.datetime.combine(hoy, timezone.datetime.min.time())
+        )
+        fin_dia = timezone.make_aware(
+            timezone.datetime.combine(hoy, timezone.datetime.max.time())
+        )
+
+        qs_hoy = MovimientosCaja.objects.filter(mv_fecha_hora__range=(inicio_dia, fin_dia))
+
+        # ── Estado de caja HOY según el ÚLTIMO movimiento ─────────────
+        ultimo = qs_hoy.order_by("mv_fecha_hora").last()
+        caja_abierta = bool(ultimo and ultimo.id_tipo_movimiento_caja_id != ID_CIERRE)
+
+        # ── No permitir abrir/cerrar dos veces seguidas ───────────────
+        if tipo_id == ID_APERTURA and caja_abierta:
+            return Response(
+                {"detail": "La caja ya está abierta. No se puede abrir dos veces seguidas."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if tipo_id == ID_CIERRE and not caja_abierta:
+            return Response(
+                {"detail": "La caja ya está cerrada. No se puede cerrar dos veces seguidas."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Reglas según el tipo de movimiento ────────────────────────
+        if tipo_id == ID_APERTURA:
+            # Apertura: sin venta, método de pago = Efectivo si existe
+            data["id_venta"] = None
+            try:
+                efectivo = MetodoDePago.objects.get(metpag_nombre__iexact="Efectivo")
+                data["id_metodo_pago"] = efectivo.id_metodo_pago
+            except MetodoDePago.DoesNotExist:
+                data["id_metodo_pago"] = None
+            # mv_monto lo manda el front (monto inicial)
+
+        elif tipo_id == ID_INGRESO:
+            # Ingreso: requiere venta y método de pago
+            if not data.get("id_venta"):
+                return Response(
+                    {"id_venta": ["Requerido para ingresos (cobros)."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not data.get("id_metodo_pago"):
+                return Response(
+                    {"id_metodo_pago": ["Requerido para ingresos (cobros)."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            # mv_monto lo debe mandar el front (> 0)
+
+        elif tipo_id == ID_EGRESO:
+            # Egreso: sin venta ni método de pago
+            data["id_venta"] = None
+            data["id_metodo_pago"] = None
+            # mv_monto lo debe mandar el front (> 0)
+
+        elif tipo_id == ID_CIERRE:
+            # ────────────────────────────────────────────────────────────
+            # CIERRE: tomar SOLO lo que pasó desde la ÚLTIMA APERTURA
+            # ────────────────────────────────────────────────────────────
+
+            # Última apertura del día (después de cualquier cierre anterior)
+            ultima_apertura = (
+                qs_hoy.filter(id_tipo_movimiento_caja_id=ID_APERTURA)
+                .order_by("-mv_fecha_hora")
+                .first()
+            )
+
+            if not ultima_apertura:
+                return Response(
+                    {"detail": "No hay una apertura registrada hoy para calcular el cierre."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            inicio_ciclo = ultima_apertura.mv_fecha_hora  # desde esta apertura en adelante
+            ahora = timezone.now()
+
+            movimientos_ciclo = qs_hoy.filter(mv_fecha_hora__gte=inicio_ciclo, mv_fecha_hora__lte=ahora)
+
+            monto_apertura = ultima_apertura.mv_monto or 0
+            ingresos = (
+                movimientos_ciclo.filter(id_tipo_movimiento_caja_id=ID_INGRESO)
+                .aggregate(s=Sum("mv_monto"))["s"] or 0
+            )
+            egresos = (
+                movimientos_ciclo.filter(id_tipo_movimiento_caja_id=ID_EGRESO)
+                .aggregate(s=Sum("mv_monto"))["s"] or 0
+            )
+
+            # saldo final de este ciclo: APERTURA (última) + INGRESOS - EGRESOS
+            data["mv_monto"] = monto_apertura + ingresos - egresos
+            data["id_venta"] = None
+            data["id_metodo_pago"] = None
+
+        # ── Validar y crear ───────────────────────────────────────────
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+
+        ahora = timezone.now()
+        instancia = serializer.save(
+            id_empleado=empleado,
+            mv_fecha_hora=ahora,
+        )
+
+        read_serializer = MovimientoCajaSerializer(instancia)
+        return Response(read_serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["get"], url_path="arqueo")
+    def arqueo_caja(self, request):
+        """
+        Devuelve totales de ingresos, egresos y neto agrupados por método de pago.
+        Filtra por fecha YYYY-MM-DD (desde - hasta).
+        """
+        fecha_desde = request.query_params.get("desde")
+        fecha_hasta = request.query_params.get("hasta")
+
+        movimientos = MovimientosCaja.objects.all()
+
+        if fecha_desde:
+            movimientos = movimientos.filter(mv_fecha_hora__date__gte=fecha_desde)
+        if fecha_hasta:
+            movimientos = movimientos.filter(mv_fecha_hora__date__lte=fecha_hasta)
+
+        # Agrupar por método de pago
+        agrupado = (
+            movimientos.values("id_metodo_pago__metpag_nombre", "id_metodo_pago")
+            .annotate(
+                ingresos=Sum(
+                    Case(
+                        When(id_tipo_movimiento_caja=2, then="mv_monto"),
+                        default=Value(0),
+                        output_field=DecimalField(),
+                    )
+                ),
+                egresos=Sum(
+                    Case(
+                        When(id_tipo_movimiento_caja=3, then="mv_monto"),
+                        default=Value(0),
+                        output_field=DecimalField(),
+                    )
+                ),
+            )
+        )
+
+        # Convertir formato para el front
+        detalle = []
+        total_ingresos = 0
+        total_egresos = 0
+
+        for fila in agrupado:
+            ingreso = fila["ingresos"] or 0
+            egreso = fila["egresos"] or 0
+            detalle.append({
+                "id_metodo_pago": fila["id_metodo_pago"],
+                "metodo_pago": fila["id_metodo_pago__metpag_nombre"] or "Sin método",
+                "ingresos": ingreso,
+                "egresos": egreso,
+                "neto": ingreso - egreso,
+            })
+            total_ingresos += ingreso
+            total_egresos += egreso
+
+        return Response({
+            "por_metodo": detalle,
+            "total_ingresos": total_ingresos,
+            "total_egresos": total_egresos,
+            "total_neto": total_ingresos - total_egresos,
+        })
+    # ── Helper: ¿la caja está abierta hoy? ──────────────────────────────────────
+    def caja_esta_abierta_hoy():
+        """
+        Devuelve True si, para el día de hoy, el ÚLTIMO movimiento de caja
+        NO es un cierre. Si no hay movimientos, se considera cerrada.
+        """
+        hoy = timezone.localdate()
+        inicio = timezone.make_aware(
+            timezone.datetime.combine(hoy, timezone.datetime.min.time())
+        )
+        fin = timezone.make_aware(
+            timezone.datetime.combine(hoy, timezone.datetime.max.time())
+        )
+
+        qs_hoy = MovimientosCaja.objects.filter(mv_fecha_hora__range=(inicio, fin))
+
+        ultimo = qs_hoy.order_by("mv_fecha_hora").last()
+        if not ultimo:
+            # Nunca se abrió hoy → cerrada
+            return False
+
+        # Si el último movimiento del día es CIERRE → cerrada
+        return ultimo.id_tipo_movimiento_caja_id != TIPO_MOV_CAJA["CIERRE"]
+
+# ── Helper: ¿la caja está abierta hoy? ──────────────────────────────────────
+def caja_esta_abierta_hoy():
+    """
+    Devuelve True si, para el día de hoy, el ÚLTIMO movimiento de caja
+    NO es un cierre. Si no hay movimientos, se considera cerrada.
+    """
+    hoy = timezone.localdate()
+    inicio = timezone.make_aware(
+        timezone.datetime.combine(hoy, timezone.datetime.min.time())
+    )
+    fin = timezone.make_aware(
+        timezone.datetime.combine(hoy, timezone.datetime.max.time())
+    )
+
+    qs_hoy = MovimientosCaja.objects.filter(mv_fecha_hora__range=(inicio, fin))
+
+    ultimo = qs_hoy.order_by("mv_fecha_hora").last()
+    if not ultimo:
+        # Nunca se abrió hoy → cerrada
+        return False
+
+    # Si el último movimiento del día es CIERRE → cerrada
+    return ultimo.id_tipo_movimiento_caja_id != TIPO_MOV_CAJA["CIERRE"]
+
+
+    
+# ──────────────────────────────────────────────────────────────────────────────
+# HISTORIAL DE CAJA (un arqueo por cada cierre)
+# ──────────────────────────────────────────────────────────────────────────────
+class CajaHistorialView(APIView):
+    """
+    GET /api/caja/historial/
+
+    Devuelve una lista de cierres, cada uno con:
+    - fecha y hora del cierre
+    - apertura correspondiente
+    - total del ciclo (apertura + ingresos - egresos)
+    - ingresos por método de pago
+    - egresos por método de pago
+    """
+    def get(self, request):
+
+        ID_APERTURA = 1
+        ID_INGRESO  = 2
+        ID_EGRESO   = 3
+        ID_CIERRE   = 4
+
+        cierres = (
+            MovimientosCaja.objects
+            .filter(id_tipo_movimiento_caja_id=ID_CIERRE)
+            .order_by("-mv_fecha_hora")
+        )
+
+        historial = []
+
+        for cierre in cierres:
+            # Buscar apertura anterior
+            apertura = (
+                MovimientosCaja.objects
+                .filter(
+                    id_tipo_movimiento_caja_id=ID_APERTURA,
+                    mv_fecha_hora__lte=cierre.mv_fecha_hora
+                )
+                .order_by("-mv_fecha_hora")
+                .first()
+            )
+
+            if not apertura:
+                continue
+
+            # Ciclo entre apertura y cierre
+            movimientos = MovimientosCaja.objects.filter(
+                mv_fecha_hora__gte=apertura.mv_fecha_hora,
+                mv_fecha_hora__lte=cierre.mv_fecha_hora
+            )
+
+            ingresos_por_mp = (
+                movimientos.filter(id_tipo_movimiento_caja_id=ID_INGRESO)
+                .values("id_metodo_pago__metpag_nombre")
+                .annotate(total=Sum("mv_monto"))
+                .order_by("id_metodo_pago__metpag_nombre")
+            )
+
+            egresos_por_mp = (
+                movimientos.filter(id_tipo_movimiento_caja_id=ID_EGRESO)
+                .values("id_metodo_pago__metpag_nombre")
+                .annotate(total=Sum("mv_monto"))
+                .order_by("id_metodo_pago__metpag_nombre")
+            )
+
+            total_ing = sum([r["total"] or 0 for r in ingresos_por_mp])
+            total_egr = sum([r["total"] or 0 for r in egresos_por_mp])
+
+            total_final = (apertura.mv_monto or 0) + total_ing - total_egr
+
+            historial.append({
+                "cierre_fecha": cierre.mv_fecha_hora,
+                "apertura_fecha": apertura.mv_fecha_hora,
+                "monto_apertura": float(apertura.mv_monto or 0),
+                "ingresos": float(total_ing),
+                "egresos": float(total_egr),
+                "total_final": float(total_final),
+                "por_metodo_ingresos": [
+                    {"metodo": i["id_metodo_pago__metpag_nombre"], "monto": float(i["total"] or 0)}
+                    for i in ingresos_por_mp
+                ],
+                "por_metodo_egresos": [
+                    {"metodo": e["id_metodo_pago__metpag_nombre"], "monto": float(e["total"] or 0)}
+                    for e in egresos_por_mp
+                ],
+            })
+
+        return Response(historial, status=200)

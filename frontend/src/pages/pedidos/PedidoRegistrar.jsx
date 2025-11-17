@@ -181,8 +181,7 @@ export default function PedidoRegistrar() {
   const [msg, setMsg] = useState("");
   const [catalogMsg, setCatalogMsg] = useState([]);
 
-  /* Cliente: existente vs nuevo */
-  const [modoCliente, setModoCliente] = useState("existente"); // "existente" | "nuevo"
+  /* Cliente: SIEMPRE NUEVO */
   const [nuevoNombre, setNuevoNombre] = useState("");
 
   /* ===== detectar “Para llevar” en tipos ===== */
@@ -314,7 +313,7 @@ export default function PedidoRegistrar() {
     return it?.id_estado_pedido ?? it?.id;
   };
 
-  /* ===== Cliente: crear si hace falta ===== */
+  /* ===== Cliente: SIEMPRE crear nuevo ===== */
   const createClienteRaw = async (nombre) => {
     const body = { cli_nombre: nombre };
     const { data } = await api.post("/api/clientes/", body);
@@ -337,15 +336,9 @@ export default function PedidoRegistrar() {
     }
   };
   const ensureClienteId = async () => {
-    if (modoCliente === "existente") {
-      if (form.id_cliente) return Number(form.id_cliente);
-      const id = await createClienteNombreId("");
-      return Number(id);
-    } else {
-      const nombre = (nuevoNombre || "").trim();
-      const id = await createClienteNombreId(nombre);
-      return Number(id);
-    }
+    const nombre = (nuevoNombre || "").trim();
+    const id = await createClienteNombreId(nombre);
+    return Number(id);
   };
 
   /* ===== Submit con validación de stock ===== */
@@ -481,32 +474,15 @@ export default function PedidoRegistrar() {
           <input value={empleadoActual ? empleadoLabel(empleadoActual) : "—"} disabled />
         </div>
 
-        {/* Cliente: existente o nuevo */}
+        {/* Cliente: SIEMPRE NUEVO */}
         <div className="row">
           <label>Cliente =</label>
-          <div style={{display:"grid", gridTemplateColumns:"1fr", gap:8, width:"100%"}}>
-            <div style={{display:"flex", gap:14, alignItems:"center", flexWrap:"wrap"}}>
-              <label><input type="radio" name="modoCliente" checked={modoCliente==="existente"} onChange={()=>setModoCliente("existente")} /> Existente</label>
-              <label><input type="radio" name="modoCliente" checked={modoCliente==="nuevo"} onChange={()=>setModoCliente("nuevo")} /> Nuevo</label>
-            </div>
-            {modoCliente === "existente" ? (
-              <select id="id_cliente" name="id_cliente" value={form.id_cliente} onChange={onChange}>
-                <option value="">— Seleccioná cliente — (si lo dejás vacío, se creará uno nuevo con nombre = ID)</option>
-                {clientes.map((c) => (
-                  <option key={c.id_cliente ?? c.id} value={c.id_cliente ?? c.id}>
-                    {clienteLabel(c)}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                type="text"
-                placeholder='Nombre del nuevo cliente (opcional). Si lo dejás en blanco, se usará su ID.'
-                value={nuevoNombre}
-                onChange={(e) => setNuevoNombre(e.target.value)}
-              />
-            )}
-          </div>
+          <input
+            type="text"
+            placeholder='Nombre del nuevo cliente (opcional). Si lo dejás en blanco, se usará su ID.'
+            value={nuevoNombre}
+            onChange={(e) => setNuevoNombre(e.target.value)}
+          />
         </div>
 
         <div className="row">
@@ -538,18 +514,30 @@ export default function PedidoRegistrar() {
             <tbody>
               {detalles.map((row, idx) => {
                 const e = rowErrors[idx] || {};
+
+                // Platos ya usados en OTROS renglones
+                const usados = new Set(
+                  detalles
+                    .map((d, i2) => (i2 === idx ? null : Number(d.id_plato)))
+                    .filter((v) => v)
+                );
+                const opciones = platosFiltrados.filter((p) => {
+                  const idp = getPlatoId(p);
+                  if (!idp) return false;
+                  if (Number(row.id_plato) === idp) return true; // mantener el que ya está seleccionado
+                  return !usados.has(idp);
+                });
+
                 return (
                   <tr key={idx}>
                     <td>
                       <select value={row.id_plato} onChange={(ev) => onRowChange(idx, "id_plato", ev.target.value)}>
                         <option value="">— Seleccioná plato (con receta) —</option>
-                        {platos
-                          .filter((p) => platosConReceta.has(getPlatoId(p)))
-                          .map((p) => (
-                            <option key={getPlatoId(p)} value={getPlatoId(p)}>
-                              {platoLabel(p)}
-                            </option>
-                          ))}
+                        {opciones.map((p) => (
+                          <option key={getPlatoId(p)} value={getPlatoId(p)}>
+                            {platoLabel(p)}
+                          </option>
+                        ))}
                       </select>
                       {e.id_plato && <small className="err-inline">{e.id_plato}</small>}
                     </td>
@@ -607,6 +595,7 @@ textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 
 
 

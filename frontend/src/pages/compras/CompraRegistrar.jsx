@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
@@ -44,10 +44,11 @@ export default function CompraRegistrar() {
   }, [linksProvInsumo]);
 
   const [form, setForm] = useState({
-    id_empleado: "", // se completa con /empleados/me/
-    id_estado_compra: "", // “En Proceso” (bloqueado)
+    id_empleado: "",        // se completa con /empleados/me/
+    id_estado_compra: "",   // “En Proceso” (bloqueado)
     id_proveedor: "",
     com_descripcion: "",
+    com_pagado: "2",        // 1 = Sí, 2 = No (por defecto NO)
   });
 
   // renglones del detalle
@@ -70,7 +71,7 @@ export default function CompraRegistrar() {
           console.error("empleados/me", e);
         }
 
-        // Estados compra (para fijar “En Proceso”)
+        // Estados compra + proveedores + insumos
         const [est, prov, ins] = await Promise.all([
           api.get("/api/estados-compra/"),
           api.get("/api/proveedores/"),
@@ -80,8 +81,15 @@ export default function CompraRegistrar() {
         const proveedoresArr = norm(prov);
         const insArr = norm(ins);
 
+        // 👉 proveedores SOLO activos
+        const proveedoresActivos = proveedoresArr.filter((p) => {
+          const est = String(p.estado_nombre ?? p.prov_estado ?? "").toLowerCase();
+          const idEst = Number(p.id_estado_proveedor ?? p.estado ?? 0);
+          return est === "activo" || idEst === 1;
+        });
+
         setEstados(estadosArr);
-        setProveedores(proveedoresArr);
+        setProveedores(proveedoresActivos);
         setInsumosAll(insArr);
 
         // fijar estado “En Proceso”
@@ -103,7 +111,7 @@ export default function CompraRegistrar() {
           }));
         } else {
           setMsg((m) =>
-            m ? m + "\n" : "" + "No se encontró estado 'En Proceso'."
+            (m ? m + "\n" : "") + "No se encontró estado 'En Proceso'."
           );
         }
       } catch (e) {
@@ -145,7 +153,8 @@ export default function CompraRegistrar() {
   }, [linksProvInsumo, insumosAll]);
 
   // ====== handlers ======
-  const onChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+  const onChange = (e) =>
+    setForm({ ...form, [e.target.name]: e.target.value });
 
   const setRow = (i, k, v) => {
     const n = [...rows];
@@ -209,7 +218,9 @@ export default function CompraRegistrar() {
       }
       const precioRel = Number(precioByInsumo.get(Number(r.id_insumo)) || 0);
       if (!(precioRel > 0)) {
-        setMsg("El precio guardado en el proveedor para ese insumo debe ser > 0.");
+        setMsg(
+          "El precio guardado en el proveedor para ese insumo debe ser > 0."
+        );
         return;
       }
     }
@@ -223,6 +234,7 @@ export default function CompraRegistrar() {
         com_fecha_hora: nowSQL(),
         com_monto: Number(total.toFixed(2)),
         com_descripcion: form.com_descripcion || "",
+        com_pagado: Number(form.com_pagado || 2), // 1 = Sí, 2 = No
       };
       const created = await api.post("/api/compras/", body);
       const compraId = created?.data?.id_compra ?? created?.data?.id;
@@ -274,7 +286,7 @@ export default function CompraRegistrar() {
           />
         </div>
 
-        {/* Proveedor */}
+        {/* Proveedor (solo activos) */}
         <div className="row">
           <label>Proveedor =</label>
           <select
@@ -304,6 +316,7 @@ export default function CompraRegistrar() {
           <input value="Se tomará la del momento de registro" disabled />
         </div>
 
+        {/* Descripción */}
         <div className="row">
           <label>Descripción =</label>
           <input
@@ -312,6 +325,19 @@ export default function CompraRegistrar() {
             onChange={onChange}
             placeholder="Opcional"
           />
+        </div>
+
+        {/* Pagado */}
+        <div className="row">
+          <label>Pagado =</label>
+          <select
+            name="com_pagado"
+            value={form.com_pagado}
+            onChange={onChange}
+          >
+            <option value="2">No</option>
+            <option value="1">Sí</option>
+          </select>
         </div>
 
         {/* Detalle */}
@@ -328,76 +354,95 @@ export default function CompraRegistrar() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
-                <tr key={i}>
-                  <td>
-                    <select
-                      value={r.id_insumo}
-                      onChange={(e) =>
-                        setRow(i, "id_insumo", e.target.value)
-                      }
-                      disabled={!form.id_proveedor || !insumosDisponibles.length}
-                    >
-                      <option value="">-- Seleccioná --</option>
-                      {insumosDisponibles.map((ins) => (
-                        <option
-                          key={ins.id_insumo}
-                          value={ins.id_insumo}
-                        >
-                          {ins.ins_nombre}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={r.detcom_cantidad}
-                      onChange={(e) =>
-                        setRow(i, "detcom_cantidad", e.target.value)
-                      }
-                      onKeyDown={blockInvalidDecimal}
-                      placeholder="0.000"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={
-                        r.id_insumo
-                          ? String(
-                              precioByInsumo.get(Number(r.id_insumo)) ?? ""
-                            )
-                          : ""
-                      }
-                      readOnly
-                      placeholder="—"
-                      style={{ opacity: 0.75 }}
-                      title="Precio desde proveedor-insumo"
-                    />
-                  </td>
-                  <td>
-                    $
-                    {calcSubtotal({
-                      ...r,
-                      detcom_precio_uni:
-                        precioByInsumo.get(Number(r.id_insumo)) ?? 0,
-                    }).toFixed(2)}
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => removeRow(i)}
-                      disabled={rows.length === 1}
-                    >
-                      Quitar
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {rows.map((r, i) => {
+                const selectedId = Number(r.id_insumo || 0);
+                const usedIds = new Set(
+                  rows
+                    .filter((_, idx) => idx !== i)
+                    .map((rr) => Number(rr.id_insumo || 0))
+                );
+
+                // insumos sin repetir entre renglones
+                const opcionesInsumos = insumosDisponibles.filter((ins) => {
+                  const idIns = Number(ins.id_insumo || 0);
+                  if (!idIns) return false;
+                  if (idIns === selectedId) return true; // mantener el actual
+                  return !usedIds.has(idIns);           // ocultar si ya está elegido en otro renglón
+                });
+
+                return (
+                  <tr key={i}>
+                    <td>
+                      <select
+                        value={r.id_insumo}
+                        onChange={(e) =>
+                          setRow(i, "id_insumo", e.target.value)
+                        }
+                        disabled={
+                          !form.id_proveedor || !insumosDisponibles.length
+                        }
+                      >
+                        <option value="">-- Seleccioná --</option>
+                        {opcionesInsumos.map((ins) => (
+                          <option
+                            key={ins.id_insumo}
+                            value={ins.id_insumo}
+                          >
+                            {ins.ins_nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={r.detcom_cantidad}
+                        onChange={(e) =>
+                          setRow(i, "detcom_cantidad", e.target.value)
+                        }
+                        onKeyDown={blockInvalidDecimal}
+                        placeholder="0.000"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={
+                          r.id_insumo
+                            ? String(
+                                precioByInsumo.get(Number(r.id_insumo)) ?? ""
+                              )
+                            : ""
+                        }
+                        readOnly
+                        placeholder="—"
+                        style={{ opacity: 0.75 }}
+                        title="Precio desde proveedor-insumo"
+                      />
+                    </td>
+                    <td>
+                      $
+                      {calcSubtotal({
+                        ...r,
+                        detcom_precio_uni:
+                          precioByInsumo.get(Number(r.id_insumo)) ?? 0,
+                      }).toFixed(2)}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => removeRow(i)}
+                        disabled={rows.length === 1}
+                      >
+                        Quitar
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -455,6 +500,7 @@ textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 
 
 
