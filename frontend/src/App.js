@@ -10,6 +10,7 @@ import CobroRegistrar from "./pages/cobros/CobroRegistrar";
 import CajaPanel from "./pages/caja/CajaPanel";
 import MovimientosCajaList from "./pages/caja/MovimientosCajaList";
 import CajaHistorial from "./pages/caja/CajaHistorial";
+import CajaHistorialDetalle from "./pages/caja/CajaHistorialDetalle";
 
 import InventarioList from "./pages/inventario/InventarioList";
 import InsumoRegistrar from "./pages/inventario/InsumoRegistrar";
@@ -71,8 +72,8 @@ export default function App() {
         <Route path="/caja" element={<ProtectedRoute><CajaPanel /></ProtectedRoute>} />
         <Route path="/cobros/registrar/:id_venta" element={<ProtectedRoute><CobroRegistrar /></ProtectedRoute>} />
         <Route path="/cobros/:id_venta" element={<CobroRegistrar />} />
-        <Route path="/caja/historial" element={ <ProtectedRoute> <CajaHistorial /></ProtectedRoute>}
-/>
+        <Route path="/caja/historial" element={ <ProtectedRoute> <CajaHistorial /></ProtectedRoute>}/>
+        <Route path="/caja/historial/:id" element={<CajaHistorialDetalle />} />
 
 
     

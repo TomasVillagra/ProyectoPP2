@@ -8,7 +8,7 @@ from pizzeria.api.views import (
     CargoViewSet, EstadoEmpleadoViewSet,ProveedorViewSet, EstadoProveedorViewSet, CategoriaProveedorViewSet,RecetaViewSet,DetalleRecetaViewSet,
     CategoriaPlatoViewSet,EstadoRecetaViewSet,DetallePedidoViewSet,EstadoCompraViewSet,CompraViewSet,DetalleCompraViewSet,
     CompraViewSet,DetalleCompraViewSet,ProveedorInsumoViewSet,EstadoMesasViewSet,MesasViewSet,
-    EstadoVentaViewSet,DetalleVentaViewSet,CajaEstadoView,CajaHistorialView
+    EstadoVentaViewSet,DetalleVentaViewSet,CajaEstadoView,CajaHistorialView,CajaHistorialDetalleView,CajaIngresosSemanalesView,
 )
 
 router = DefaultRouter()
@@ -46,6 +46,13 @@ urlpatterns = [
     path("", include(router.urls)),
     path("caja/estado/", CajaEstadoView.as_view(), name="caja-estado"),
     path("caja/historial/", CajaHistorialView.as_view(), name="caja-historial"),
+    path("caja/historial/<int:cierre_id>/",CajaHistorialDetalleView.as_view(),name="caja-historial-detalle",),
+    path(
+        "caja/ingresos-semanales/",
+        CajaIngresosSemanalesView.as_view(),
+        name="caja-ingresos-semanales",
+    ),
+
 
     # ... (tus rutas de auth/me/logout/JWT si las tenés)
 ]

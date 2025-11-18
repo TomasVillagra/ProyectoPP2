@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import apiDefault, { api as apiNamed } from "../../api/axios";
 const api = apiNamed || apiDefault;
@@ -9,24 +10,33 @@ const money = (n) => {
   return Number.isFinite(x) ? x.toFixed(2) : "0.00";
 };
 
-function fmtDate(dt) {
-  if (!dt) return "-";
+function splitDateTime(dt) {
+  if (!dt) return { fecha: "-", hora: "-" };
   try {
     const d = new Date(dt);
     if (isNaN(d.getTime())) {
-      // por si viene ya formateado
-      return String(dt).replace("T", " ").slice(0, 19);
+      // Por si viene como string "2025-11-18T10:23:45"
+      const s = String(dt).replace("T", " ").slice(0, 19);
+      const [fecha, hora] = s.split(" ");
+      return { fecha: fecha || "-", hora: hora || "-" };
     }
-    return d.toLocaleString();
+    return {
+      fecha: d.toLocaleDateString(),
+      hora: d.toLocaleTimeString(),
+    };
   } catch {
-    return String(dt);
+    return { fecha: String(dt), hora: "-" };
   }
 }
 
 export default function CajaHistorial() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [historial, setHistorial] = useState([]); // ← lista de cierres
+  const [historial, setHistorial] = useState([]); // lista de cierres
+
+  // PAGINACIÓN
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   const cargarHistorial = async () => {
     try {
@@ -35,6 +45,7 @@ export default function CajaHistorial() {
       const res = await api.get("/api/caja/historial/");
       const data = Array.isArray(res.data) ? res.data : [];
       setHistorial(data);
+      setCurrentPage(1); // resetea a la primera página al recargar
     } catch (e) {
       console.error(e);
       setError("No se pudo cargar el historial de caja.");
@@ -47,6 +58,18 @@ export default function CajaHistorial() {
     cargarHistorial();
   }, []);
 
+  // Cálculos de paginación
+  const totalItems = historial.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+  const paginatedHistorial = historial.slice(startIndex, endIndex);
+
+  const goToPage = (page) => {
+    if (page < 1 || page > totalPages) return;
+    setCurrentPage(page);
+  };
+
   return (
     <DashboardLayout>
       <div
@@ -54,7 +77,7 @@ export default function CajaHistorial() {
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: 12,
+          marginBottom: 20,
         }}
       >
         <h2 style={{ margin: 0, color: "#fff" }}>Historial de Caja</h2>
@@ -72,126 +95,125 @@ export default function CajaHistorial() {
         <p style={{ color: "#facc15", marginTop: 8 }}>{error}</p>
       )}
 
+      {loading && <p>Cargando historial...</p>}
+
       {!loading && historial.length === 0 && !error && (
         <p style={{ marginTop: 8 }}>Todavía no hay cierres registrados.</p>
       )}
 
-      {loading && <p>Cargando historial...</p>}
+      {!loading && historial.length > 0 && (
+        <>
+          <div className="table-wrap">
+            <table className="table-dark">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Fecha apertura</th>
+                  <th>Hora apertura</th>
+                  <th>Empleado apertura</th>
+                  <th>Fecha cierre</th>
+                  <th>Hora cierre</th>
+                  <th>Empleado cierre</th>
+                  <th>Monto apertura</th>
+                  <th>Ingresos</th>
+                  <th>Egresos</th>
+                  <th>Total final</th>
+                  <th>Detalle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedHistorial.map((c, idx) => {
+                  // índice global (1,2,3...) considerando la paginación
+                  const rowNumber = startIndex + idx + 1;
 
-      {!loading &&
-        historial.map((c, idx) => (
-          <div key={idx} className="card-dark" style={{ marginBottom: 16 }}>
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 12,
-                justifyContent: "space-between",
-              }}
-            >
-              <div>
-                <div className="label">Apertura</div>
-                <div>{fmtDate(c.apertura_fecha)}</div>
-              </div>
-              <div>
-                <div className="label">Cierre</div>
-                <div>{fmtDate(c.cierre_fecha)}</div>
-              </div>
-              <div>
-                <div className="label">Monto apertura</div>
-                <div>${money(c.monto_apertura)}</div>
-              </div>
-              <div>
-                <div className="label">Ingresos</div>
-                <div className="res-num ok">${money(c.ingresos)}</div>
-              </div>
-              <div>
-                <div className="label">Egresos</div>
-                <div className="res-num err">${money(c.egresos)}</div>
-              </div>
-              <div>
-                <div className="label">Total final</div>
-                <div
-                  className="res-num"
-                  style={{
-                    color:
-                      Number(c.total_final) >= 0 ? "#22c55e" : "#f97316",
-                  }}
-                >
-                  {Number(c.total_final) >= 0 ? "+" : "-"}$
-                  {money(Math.abs(Number(c.total_final) || 0))}
-                </div>
-              </div>
-            </div>
+                  // Empleados de apertura y cierre (probando distintos nombres de campo)
+                  const empApertura =
+                    c.apertura_empleado_nombre ??
+                    c.empleado_apertura ??
+                    c.emp_apertura ??
+                    c.apertura_empleado ??
+                    "-";
 
-            {/* Detalle por método de pago */}
-            <div className="table-wrap" style={{ marginTop: 12 }}>
-              <h4 style={{ color: "#fff", marginBottom: 6 }}>
-                Ingresos por método de pago
-              </h4>
-              <table className="table-dark">
-                <thead>
-                  <tr>
-                    <th>Método</th>
-                    <th style={{ textAlign: "right" }}>Monto</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(!c.por_metodo_ingresos ||
-                    c.por_metodo_ingresos.length === 0) && (
-                    <tr>
-                      <td colSpan="2" style={{ textAlign: "center" }}>
-                        Sin ingresos en este ciclo.
+                  const empCierre =
+                    c.cierre_empleado_nombre ??
+                    c.empleado_cierre ??
+                    c.emp_cierre ??
+                    c.cierre_empleado ??
+                    "-";
+
+                  const apertura = splitDateTime(c.apertura_fecha);
+                  const cierre = splitDateTime(c.cierre_fecha);
+
+                  const totalFinalNum = Number(c.total_final) || 0;
+                  const cierreId = c.id_cierre ?? c.id ?? rowNumber;
+
+                  return (
+                    <tr key={rowNumber}>
+                      <td>{rowNumber}</td>
+                      <td>{apertura.fecha}</td>
+                      <td>{apertura.hora}</td>
+                      <td>{empApertura}</td>
+                      <td>{cierre.fecha}</td>
+                      <td>{cierre.hora}</td>
+                      <td>{empCierre}</td>
+                      <td>${money(c.monto_apertura)}</td>
+                      <td className="res-num ok">${money(c.ingresos)}</td>
+                      <td className="res-num err">${money(c.egresos)}</td>
+                      <td
+                        className="res-num"
+                        style={{
+                          color: totalFinalNum >= 0 ? "#22c55e" : "#f97316",
+                        }}
+                      >
+                        {totalFinalNum >= 0 ? "+" : "-"}$
+                        {money(Math.abs(totalFinalNum))}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <Link
+                          className="btn btn-primary btn-sm"
+                          to={`/caja/historial/${cierreId}`}
+                        >
+                          Ver
+                        </Link>
                       </td>
                     </tr>
-                  )}
-                  {c.por_metodo_ingresos &&
-                    c.por_metodo_ingresos.map((m, i) => (
-                      <tr key={i}>
-                        <td>{m.metodo || "Sin método"}</td>
-                        <td style={{ textAlign: "right" }}>
-                          ${money(m.monto)}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-            <div className="table-wrap" style={{ marginTop: 12 }}>
-              <h4 style={{ color: "#fff", marginBottom: 6 }}>
-                Egresos por método de pago
-              </h4>
-              <table className="table-dark">
-                <thead>
-                  <tr>
-                    <th>Método</th>
-                    <th style={{ textAlign: "right" }}>Monto</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(!c.por_metodo_egresos ||
-                    c.por_metodo_egresos.length === 0) && (
-                    <tr>
-                      <td colSpan="2" style={{ textAlign: "center" }}>
-                        Sin egresos en este ciclo.
-                      </td>
-                    </tr>
-                  )}
-                  {c.por_metodo_egresos &&
-                    c.por_metodo_egresos.map((m, i) => (
-                      <tr key={i}>
-                        <td>{m.metodo || "Sin método"}</td>
-                        <td style={{ textAlign: "right" }}>
-                          ${money(m.monto)}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
+          {/* Controles de paginación */}
+          <div className="pagination-wrap">
+            <div className="pagination-info">
+              Mostrando <strong>{startIndex + 1}</strong>–
+              <strong>{endIndex}</strong> de <strong>{totalItems}</strong>{" "}
+              cierres
+            </div>
+            <div className="pagination-controls">
+              <button
+                className="btn btn-secondary btn-sm"
+                type="button"
+                onClick={() => goToPage(currentPage - 1)}
+                disabled={currentPage === 1}
+              >
+                Anterior
+              </button>
+              <span className="pagination-page">
+                Página {currentPage} de {totalPages}
+              </span>
+              <button
+                className="btn btn-secondary btn-sm"
+                type="button"
+                onClick={() => goToPage(currentPage + 1)}
+                disabled={currentPage === totalPages}
+              >
+                Siguiente
+              </button>
             </div>
           </div>
-        ))}
+        </>
+      )}
 
       <style>{styles}</style>
     </DashboardLayout>
@@ -199,41 +221,18 @@ export default function CajaHistorial() {
 }
 
 const styles = `
-.filtros-card {
-  background:#121212;
-  border:1px solid #232323;
-  border-radius:10px;
-  padding:10px;
-  margin-bottom:12px;
-}
-.filtros-row {
-  display:flex;
-  gap:12px;
-  flex-wrap:wrap;
-}
-.field {
-  display:flex;
-  flex-direction:column;
-  gap:4px;
-}
-.label {
-  color:#a1a1aa;
-  font-size:13px;
-}
-.input {
-  background:#0f0f10;
-  color:#fff;
-  border:1px solid #2a2a2a;
-  border-radius:8px;
-  padding:6px 8px;
-}
 .btn {
-  padding:8px 12px;
+  padding:8px 14px;
   border-radius:8px;
   border:1px solid transparent;
   cursor:pointer;
   text-decoration:none;
   font-weight:600;
+  font-size:13px;
+}
+.btn-sm {
+  padding:6px 10px;
+  font-size:12px;
 }
 .btn-primary {
   background:#2563eb;
@@ -244,44 +243,86 @@ const styles = `
   color:#fff;
   border:1px solid #4a4a4e;
 }
-.resumen-grid {
-  display:grid;
-  grid-template-columns: repeat(1, minmax(0, 1fr));
-  gap:10px;
-  margin-top:10px;
-}
-@media (min-width: 800px) {
-  .resumen-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-.card-dark {
-  background:#121212;
-  border:1px solid #232323;
-  border-radius:10px;
-  padding:10px;
-}
-.res-num {
-  font-size:20px;
-  font-weight:700;
-  margin-top:4px;
-}
-.res-num.ok { color:#22c55e; }
-.res-num.err { color:#f97316; }
 .table-wrap {
-  margin-top:16px;
+  margin-top:20px;
   overflow:auto;
 }
 .table-dark {
   width:100%;
-  border-collapse:collapse;
-  background:#121212;
+  border-collapse:separate;
+  border-spacing:0 4px;        /* más espacio entre filas */
+  background:transparent;
   color:#eaeaea;
 }
+.table-dark thead tr {
+  background:#18181b;
+}
 .table-dark th, .table-dark td {
-  border:1px solid #232323;
-  padding:8px;
+  padding:10px 14px;           /* más padding */
+  font-size:14px;
+  line-height:1.4;
+}
+.table-dark th:first-child,
+.table-dark td:first-child {
+  padding-left:16px;
+}
+.table-dark th:last-child,
+.table-dark td:last-child {
+  padding-right:16px;
+}
+.table-dark tbody tr {
+  background:#121212;
+  border-radius:10px;
+}
+.table-dark tbody tr:hover {
+  background:#1f2933;
+}
+.table-dark tbody tr td {
+  border-top:1px solid #232323;
+  border-bottom:1px solid #232323;
+}
+.table-dark tbody tr td:first-child {
+  border-left:1px solid #232323;
+  border-top-left-radius:10px;
+  border-bottom-left-radius:10px;
+}
+.table-dark tbody tr td:last-child {
+  border-right:1px solid #232323;
+  border-top-right-radius:10px;
+  border-bottom-right-radius:10px;
+}
+.table-dark th {
+  text-align:left;
+}
+.res-num {
+  font-weight:600;
+}
+.res-num.ok { color:#22c55e; }
+.res-num.err { color:#f97316; }
+
+.pagination-wrap {
+  margin-top:16px;
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+}
+.pagination-info {
+  font-size:13px;
+  color:#d4d4d8;
+}
+.pagination-controls {
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.pagination-page {
+  font-size:13px;
+  color:#e4e4e7;
 }
 `;
+
+
 
 

@@ -33,6 +33,9 @@ export default function CompraRegistrar() {
   const [proveedores, setProveedores] = useState([]);
   const [insumosAll, setInsumosAll] = useState([]);
 
+  // estado de caja
+  const [cajaEstado, setCajaEstado] = useState(null);
+
   // vínculo proveedor<->insumo (con precio_unitario)
   const [linksProvInsumo, setLinksProvInsumo] = useState([]); // [{id_insumo, precio_unitario, ...}]
   const precioByInsumo = useMemo(() => {
@@ -44,11 +47,11 @@ export default function CompraRegistrar() {
   }, [linksProvInsumo]);
 
   const [form, setForm] = useState({
-    id_empleado: "",        // se completa con /empleados/me/
-    id_estado_compra: "",   // “En Proceso” (bloqueado)
+    id_empleado: "", // se completa con /empleados/me/
+    id_estado_compra: "", // “En Proceso” (bloqueado)
     id_proveedor: "",
     com_descripcion: "",
-    com_pagado: "2",        // 1 = Sí, 2 = No (por defecto NO)
+    com_pagado: "2", // 1 = Sí, 2 = No (por defecto NO)
   });
 
   // renglones del detalle
@@ -71,21 +74,27 @@ export default function CompraRegistrar() {
           console.error("empleados/me", e);
         }
 
-        // Estados compra + proveedores + insumos
-        const [est, prov, ins] = await Promise.all([
+        // Estados compra + proveedores + insumos + estado de caja
+        const [est, prov, ins, caja] = await Promise.all([
           api.get("/api/estados-compra/"),
           api.get("/api/proveedores/"),
           api.get("/api/insumos/"),
+          api.get("/api/caja/estado/"),
         ]);
+
         const estadosArr = norm(est);
         const proveedoresArr = norm(prov);
         const insArr = norm(ins);
 
+        setCajaEstado(caja?.data ?? caja ?? null);
+
         // 👉 proveedores SOLO activos
         const proveedoresActivos = proveedoresArr.filter((p) => {
-          const est = String(p.estado_nombre ?? p.prov_estado ?? "").toLowerCase();
+          const estNom = String(
+            p.estado_nombre ?? p.prov_estado ?? ""
+          ).toLowerCase();
           const idEst = Number(p.id_estado_proveedor ?? p.estado ?? 0);
-          return est === "activo" || idEst === 1;
+          return estNom === "activo" || idEst === 1;
         });
 
         setEstados(estadosArr);
@@ -120,6 +129,16 @@ export default function CompraRegistrar() {
       }
     })();
   }, []);
+
+  // bandera: caja abierta o cerrada (según backend)
+  const cajaAbierta = useMemo(() => {
+    if (!cajaEstado) return false;
+    if (typeof cajaEstado.abierta === "boolean") return cajaEstado.abierta;
+    if (typeof cajaEstado.estado === "string") {
+      return cajaEstado.estado.toUpperCase() === "ABIERTA";
+    }
+    return false;
+  }, [cajaEstado]);
 
   // ====== cuando cambia proveedor: traer vínculos proveedor-insumo ======
   useEffect(() => {
@@ -190,6 +209,14 @@ export default function CompraRegistrar() {
   const onSubmit = async (e) => {
     e.preventDefault();
     setMsg("");
+
+    // 🚫 BLOQUEO: no permitir registrar compra si la caja está cerrada
+    if (!cajaAbierta) {
+      setMsg(
+        "La caja está CERRADA. No se puede registrar una compra mientras la caja esté cerrada."
+      );
+      return;
+    }
 
     if (!form.id_empleado) {
       setMsg("No se reconoció el empleado actual.");
@@ -274,6 +301,23 @@ export default function CompraRegistrar() {
   return (
     <DashboardLayout>
       <h2 style={{ margin: 0, marginBottom: 12 }}>Registrar Compra</h2>
+
+      {/* aviso visual de caja cerrada */}
+      {!cajaAbierta && (
+        <div
+          style={{
+            background: "#7f1d1d",
+            color: "#fee2e2",
+            padding: "8px 12px",
+            borderRadius: 8,
+            marginBottom: 10,
+          }}
+        >
+          La caja está <strong>CERRADA</strong>. No se pueden registrar compras
+          hasta que abras la caja en <b>Caja &gt; Panel</b>.
+        </div>
+      )}
+
       {msg && <pre style={{ whiteSpace: "pre-wrap" }}>{msg}</pre>}
 
       <form onSubmit={onSubmit} className="form">
@@ -294,6 +338,7 @@ export default function CompraRegistrar() {
             value={form.id_proveedor}
             onChange={onChange}
             required
+            disabled={!cajaAbierta}
           >
             <option value="">-- Seleccioná --</option>
             {proveedores.map((p) => (
@@ -324,6 +369,7 @@ export default function CompraRegistrar() {
             value={form.com_descripcion}
             onChange={onChange}
             placeholder="Opcional"
+            disabled={!cajaAbierta}
           />
         </div>
 
@@ -334,9 +380,9 @@ export default function CompraRegistrar() {
             name="com_pagado"
             value={form.com_pagado}
             onChange={onChange}
+            disabled={!cajaAbierta}
           >
             <option value="2">No</option>
-            <option value="1">Sí</option>
           </select>
         </div>
 
@@ -367,7 +413,7 @@ export default function CompraRegistrar() {
                   const idIns = Number(ins.id_insumo || 0);
                   if (!idIns) return false;
                   if (idIns === selectedId) return true; // mantener el actual
-                  return !usedIds.has(idIns);           // ocultar si ya está elegido en otro renglón
+                  return !usedIds.has(idIns); // ocultar si ya está elegido en otro renglón
                 });
 
                 return (
@@ -379,7 +425,9 @@ export default function CompraRegistrar() {
                           setRow(i, "id_insumo", e.target.value)
                         }
                         disabled={
-                          !form.id_proveedor || !insumosDisponibles.length
+                          !cajaAbierta ||
+                          !form.id_proveedor ||
+                          !insumosDisponibles.length
                         }
                       >
                         <option value="">-- Seleccioná --</option>
@@ -403,6 +451,7 @@ export default function CompraRegistrar() {
                         }
                         onKeyDown={blockInvalidDecimal}
                         placeholder="0.000"
+                        disabled={!cajaAbierta}
                       />
                     </td>
                     <td>
@@ -435,7 +484,7 @@ export default function CompraRegistrar() {
                         type="button"
                         className="btn btn-secondary"
                         onClick={() => removeRow(i)}
-                        disabled={rows.length === 1}
+                        disabled={rows.length === 1 || !cajaAbierta}
                       >
                         Quitar
                       </button>
@@ -447,12 +496,21 @@ export default function CompraRegistrar() {
           </table>
         </div>
 
-        <div style={{ marginTop: 8, marginBottom: 12 }}>
+        <div
+          style={{
+            marginTop: 8,
+            marginBottom: 12,
+          }}
+        >
           <button
             type="button"
             className="btn btn-secondary"
             onClick={addRow}
-            disabled={!form.id_proveedor || !insumosDisponibles.length}
+            disabled={
+              !cajaAbierta ||
+              !form.id_proveedor ||
+              !insumosDisponibles.length
+            }
           >
             Agregar renglón
           </button>
@@ -470,7 +528,11 @@ export default function CompraRegistrar() {
         </div>
 
         <div>
-          <button type="submit" className="btn btn-primary">
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={!cajaAbierta}
+          >
             Registrar
           </button>
           <button
@@ -500,6 +562,7 @@ textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 
 
 

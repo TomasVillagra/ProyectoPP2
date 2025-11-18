@@ -1,3 +1,4 @@
+// src/pages/caja/CajaPanel.jsx
 import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import apiDefault, { api as apiNamed } from "../../api/axios";
@@ -65,17 +66,22 @@ export default function CajaPanel() {
         return;
       }
     } catch (e) {
-      console.log("Error releyendo estado antes de abrir:", e.response?.data || e);
+      console.log(
+        "Error releyendo estado antes de abrir:",
+        e.response?.data || e
+      );
     }
 
-    if (!montoInicial || Number(montoInicial) < 0) {
-      alert("Ingresá un monto inicial válido (>= 0).");
+    const montoNum = Number(montoInicial);
+    if (!montoInicial || !Number.isFinite(montoNum) || montoNum <= 5000) {
+      alert("Ingresá un monto inicial válido (mayor a 5000).");
       return;
     }
+
     try {
       await api.post("/api/movimientos-caja/", {
         id_tipo_movimiento_caja: 1, // 1 = Apertura
-        mv_monto: Number(montoInicial),
+        mv_monto: montoNum,
         mv_descripcion: "Apertura de caja",
       });
       setMontoInicial("");
@@ -100,7 +106,10 @@ export default function CajaPanel() {
         return;
       }
     } catch (e) {
-      console.log("Error releyendo estado antes de cerrar:", e.response?.data || e);
+      console.log(
+        "Error releyendo estado antes de cerrar:",
+        e.response?.data || e
+      );
       alert("No se pudo verificar el estado de la caja.");
       return;
     }
@@ -165,43 +174,22 @@ export default function CajaPanel() {
                   step="0.01"
                   style={{ maxWidth: 180 }}
                 />
-                <button
-                  className="btn btn-primary"
-                  onClick={abrirCaja}
-                >
+                <button className="btn btn-primary" onClick={abrirCaja}>
                   Abrir caja
                 </button>
               </div>
             </div>
           ) : (
-            // Si está abierta → muestra totales (si los hay) y sólo permite cerrar
+            // Si está abierta → solo botón de cerrar caja (sin mostrar totales)
             <div className="card-dark" style={{ marginTop: 12 }}>
               <div className="label" style={{ marginBottom: 8 }}>
-                Totales por método (hoy)
+                Caja abierta
               </div>
-              <div className="table-wrap">
-                <table className="table-dark">
-                  <thead>
-                    <tr>
-                      <th>Método</th>
-                      <th>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.keys(totalesPorMetodo).length === 0 && (
-                      <tr>
-                        <td colSpan="2">Sin ingresos aún</td>
-                      </tr>
-                    )}
-                    {Object.entries(totalesPorMetodo).map(([k, v]) => (
-                      <tr key={k}>
-                        <td>{k}</td>
-                        <td>${money(v)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+
+              {/* Referencia oculta a totalesPorMetodo para no romper nada ni generar warnings */}
+              <span style={{ display: "none" }}>
+                {Object.keys(totalesPorMetodo).length}
+              </span>
 
               <div
                 style={{
@@ -210,10 +198,7 @@ export default function CajaPanel() {
                   marginTop: 10,
                 }}
               >
-                <button
-                  className="btn btn-secondary"
-                  onClick={cerrarCaja}
-                >
+                <button className="btn btn-secondary" onClick={cerrarCaja}>
                   Cerrar caja
                 </button>
               </div>
@@ -242,6 +227,7 @@ const styles = `
 .btn-primary { background:#2563eb; color:#fff; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 
 
 

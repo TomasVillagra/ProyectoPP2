@@ -24,7 +24,8 @@ export default function PlatoRegistrar() {
   const [form, setForm] = useState({
     pla_nombre: "",
     pla_precio: "",
-    pla_stock: "",
+    // 👇 Stock inicial SIEMPRE 0 al registrar
+    pla_stock: "0",
     id_categoria_plato: "",
     id_estado_plato: "1",
   });
@@ -82,7 +83,7 @@ export default function PlatoRegistrar() {
         if (num < 0) return "No puede ser negativo.";
         return "";
       case "pla_stock":
-        if (value === "") return "Ingresá el stock.";
+        // El stock inicial siempre es 0, solo validamos que sea entero >= 0
         if (!/^\d+$/.test(String(value))) return "Debe ser un entero (0 o más).";
         return "";
       case "id_categoria_plato":
@@ -159,8 +160,9 @@ export default function PlatoRegistrar() {
         plt_nombre: form.pla_nombre,
         pla_precio: Number(form.pla_precio),
         plt_precio: Number(form.pla_precio),
-        pla_stock: Number(form.pla_stock),
-        plt_stock: Number(form.pla_stock),
+        // 👇 stock inicial SIEMPRE 0
+        pla_stock: 0,
+        plt_stock: 0,
         id_categoria_plato: Number(form.id_categoria_plato),
         id_categoria: Number(form.id_categoria_plato),
         categoria_id: Number(form.id_categoria_plato),
@@ -182,7 +184,13 @@ export default function PlatoRegistrar() {
       <form onSubmit={onSubmit} className="form">
         <div className="row">
           <label htmlFor="pla_nombre">Nombre =</label>
-          <input id="pla_nombre" name="pla_nombre" value={form.pla_nombre} onChange={onChange} required />
+          <input
+            id="pla_nombre"
+            name="pla_nombre"
+            value={form.pla_nombre}
+            onChange={onChange}
+            required
+          />
         </div>
         {errors.pla_nombre && <small className="err">{errors.pla_nombre}</small>}
 
@@ -202,16 +210,16 @@ export default function PlatoRegistrar() {
         {errors.pla_precio && <small className="err">{errors.pla_precio}</small>}
 
         <div className="row">
-          <label htmlFor="pla_stock">Stock =</label>
+          <label htmlFor="pla_stock">
+            Stock (inicialmente 0, se mueve con las operaciones) =
+          </label>
           <input
             id="pla_stock"
             name="pla_stock"
             type="text"
             inputMode="numeric"
             value={form.pla_stock}
-            onChange={onChange}
-            onKeyDown={blockInvalidInt}
-            required
+            readOnly // 👈 no se edita al registrar
           />
         </div>
         {errors.pla_stock && <small className="err">{errors.pla_stock}</small>}
@@ -227,27 +235,55 @@ export default function PlatoRegistrar() {
           >
             <option value="">-- Seleccioná --</option>
             {categorias.map((c) => {
-              const id = c.id_categoria_plato ?? c.id_categoria ?? c.id ?? c.categoria_id;
-              const nombre = c.catplt_nombre ?? c.categoria_nombre ?? c.cat_nombre ?? c.nombre ?? `#${id}`;
+              const id =
+                c.id_categoria_plato ??
+                c.id_categoria ??
+                c.id ??
+                c.categoria_id;
+              const nombre =
+                c.catplt_nombre ??
+                c.categoria_nombre ??
+                c.cat_nombre ??
+                c.nombre ??
+                `#${id}`;
               return (
-                <option key={id} value={id}>{nombre}</option>
+                <option key={id} value={id}>
+                  {nombre}
+                </option>
               );
             })}
           </select>
         </div>
-        {errors.id_categoria_plato && <small className="err">{errors.id_categoria_plato}</small>}
+        {errors.id_categoria_plato && (
+          <small className="err">{errors.id_categoria_plato}</small>
+        )}
 
         <div className="row">
           <label htmlFor="id_estado_plato">Estado =</label>
-          <select id="id_estado_plato" name="id_estado_plato" value={form.id_estado_plato} onChange={onChange} required>
+          <select
+            id="id_estado_plato"
+            name="id_estado_plato"
+            value={form.id_estado_plato}
+            onChange={onChange}
+            required
+          >
             <option value="1">Activo</option>
             <option value="2">Inactivo</option>
           </select>
         </div>
 
         <div>
-          <button type="submit" className="btn btn-primary">Registrar</button>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate("/platos")} style={{marginLeft:10}}>Cancelar</button>
+          <button type="submit" className="btn btn-primary">
+            Registrar
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => navigate("/platos")}
+            style={{ marginLeft: 10 }}
+          >
+            Cancelar
+          </button>
         </div>
       </form>
 
@@ -264,4 +300,5 @@ const styles = `
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
@@ -12,13 +12,20 @@ export default function ProveedoresList() {
   const [alert, setAlert] = useState({ isOpen: false, message: "" });
   const [search, setSearch] = useState("");
 
-  useEffect(() => { cargar(); }, []);
+  // paginación
+  const [page, setPage] = useState(1);
+  const rowsPerPage = 10;
+
+  useEffect(() => {
+    cargar();
+  }, []);
 
   const cargar = () => {
     api.get("/api/proveedores/").then((res) => {
       const data = Array.isArray(res.data?.results) ? res.data.results : res.data;
       const activos = (data || []).filter((r) => Number(r?.id_estado_prov) === 1);
       setRows(activos);
+      setPage(1); // resetear a la primera página al recargar
     });
   };
 
@@ -43,7 +50,12 @@ export default function ProveedoresList() {
       cargar();
     } catch (e) {
       console.error(e);
-      setAlert({ isOpen: true, message: `No se pudo ${action} el proveedor.` });
+      // Si el backend manda un mensaje específico, lo mostramos; si no, mensaje genérico
+      const apiMsg =
+        e?.response?.data?.id_estado_prov?.[0] ||
+        e?.response?.data?.detail ||
+        `No se pudo ${action} el proveedor.`;
+      setAlert({ isOpen: true, message: apiMsg });
     } finally {
       setDialog({ isOpen: false, item: null, action: null });
     }
@@ -52,22 +64,45 @@ export default function ProveedoresList() {
   const estadoChip = (id, nombre) => {
     const label = nombre ?? (id === 1 ? "Activo" : "Inactivo");
     const isActive = id === 1;
-    return <span className={`status-chip ${isActive ? 'active' : 'inactive'}`}>{label}</span>;
+    return <span className={`status-chip ${isActive ? "active" : "inactive"}`}>{label}</span>;
   };
 
   const norm = (t) => (t ? t.toString().toLowerCase().replace(/\s+/g, "") : "");
-  const filteredRows = rows.filter((r) =>
-    norm(r.prov_nombre).includes(norm(search))
-    || norm(r.prov_correo).includes(norm(search))
-    || norm(r.prov_tel).includes(norm(search))
+
+  const filteredRows = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          norm(r.prov_nombre).includes(norm(search)) ||
+          norm(r.prov_correo).includes(norm(search)) ||
+          norm(r.prov_tel).includes(norm(search))
+      ),
+    [rows, search]
   );
+
+  // Resetear a página 1 cuando cambia la búsqueda o el total
+  useEffect(() => {
+    setPage(1);
+  }, [search, rows.length]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / rowsPerPage));
+  const startIndex = (page - 1) * rowsPerPage;
+  const endIndex = Math.min(startIndex + rowsPerPage, filteredRows.length);
+  const paginatedRows = filteredRows.slice(startIndex, endIndex);
+
+  const gotoPage = (p) => {
+    if (p < 1 || p > totalPages) return;
+    setPage(p);
+  };
 
   return (
     <DashboardLayout>
       <div className="page-header">
         <h2>Proveedores</h2>
         <div className="header-actions">
-          <Link to="/proveedores/inactivos" className="btn btn-secondary">Ver inactivos</Link>
+          <Link to="/proveedores/inactivos" className="btn btn-secondary">
+            Ver inactivos
+          </Link>
           <Link to="/proveedores/registrar" className="btn btn-primary">
             <FaPlus /> Registrar proveedor
           </Link>
@@ -88,11 +123,17 @@ export default function ProveedoresList() {
         <table className="table">
           <thead>
             <tr>
-              <th>ID</th><th>Nombre</th><th>Teléfono</th><th>Correo</th><th>Dirección</th><th>Estado</th><th>Acciones</th>
+              <th>ID</th>
+              <th>Nombre</th>
+              <th>Teléfono</th>
+              <th>Correo</th>
+              <th>Dirección</th>
+              <th>Estado</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((r) => (
+            {paginatedRows.map((r) => (
               <tr key={r.id_proveedor}>
                 <td>{r.id_proveedor}</td>
                 <td>{r.prov_nombre}</td>
@@ -101,26 +142,83 @@ export default function ProveedoresList() {
                 <td>{r.prov_direccion || "-"}</td>
                 <td>{estadoChip(r.id_estado_prov, r.estado_nombre)}</td>
                 <td className="actions-cell">
-                  <Link to={`/proveedores/${r.id_proveedor}/insumos`} className="btn btn-secondary" title="Ver/Vincular insumos">
+                  <Link
+                    to={`/proveedores/${r.id_proveedor}/insumos`}
+                    className="btn btn-secondary"
+                    title="Ver/Vincular insumos"
+                  >
                     <FaBoxes /> Insumos
                   </Link>
                   <Link to={`/proveedores/editar/${r.id_proveedor}`} className="btn btn-secondary">
                     <FaEdit /> Editar
                   </Link>
                   <button
-                    className={`btn ${r.id_estado_prov === 1 ? 'btn-danger' : 'btn-success'}`}
+                    className={`btn ${r.id_estado_prov === 1 ? "btn-danger" : "btn-success"}`}
                     onClick={() => handleToggleEstado(r)}
                   >
-                    {r.id_estado_prov === 1 ? <><FaLock /> Desactivar</> : <><FaLockOpen /> Activar</>}
+                    {r.id_estado_prov === 1 ? (
+                      <>
+                        <FaLock /> Desactivar
+                      </>
+                    ) : (
+                      <>
+                        <FaLockOpen /> Activar
+                      </>
+                    )}
                   </button>
                 </td>
               </tr>
             ))}
-            {filteredRows.length === 0 && (
-              <tr><td colSpan="7" className="empty-row">No hay proveedores que coincidan con la búsqueda.</td></tr>
+            {paginatedRows.length === 0 && (
+              <tr>
+                <td colSpan="7" className="empty-row">
+                  No hay proveedores que coincidan con la búsqueda.
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
+
+        {/* Paginación estilo data table */}
+        <div className="datatable-footer">
+          <span className="datatable-info">
+            Mostrando {filteredRows.length === 0 ? 0 : startIndex + 1}–{endIndex} de{" "}
+            {filteredRows.length} proveedores
+          </span>
+          <div className="datatable-pagination">
+            <button
+              className="page-btn"
+              onClick={() => gotoPage(1)}
+              disabled={page === 1}
+            >
+              {"<<"}
+            </button>
+            <button
+              className="page-btn"
+              onClick={() => gotoPage(page - 1)}
+              disabled={page === 1}
+            >
+              {"<"}
+            </button>
+            <span className="page-indicator">
+              Página {page} de {totalPages}
+            </span>
+            <button
+              className="page-btn"
+              onClick={() => gotoPage(page + 1)}
+              disabled={page === totalPages}
+            >
+              {">"}
+            </button>
+            <button
+              className="page-btn"
+              onClick={() => gotoPage(totalPages)}
+              disabled={page === totalPages}
+            >
+              {">>"}
+            </button>
+          </div>
+        </div>
       </div>
 
       <ConfirmDialog
@@ -172,7 +270,44 @@ export default function ProveedoresList() {
         .btn-danger:hover { background-color: rgba(239, 68, 68, 0.3); }
         .btn-success { background-color: rgba(34, 197, 94, 0.2); color: #22c55e; }
         .btn-success:hover { background-color: rgba(34, 197, 94, 0.3); }
+
+        .datatable-footer {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 10px 16px;
+          background-color: #1f2933;
+          border-top: 1px solid #3a3a3c;
+        }
+        .datatable-info {
+          font-size: 0.875rem;
+          color: #d1d5db;
+        }
+        .datatable-pagination {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .page-btn {
+          min-width: 32px;
+          height: 32px;
+          border-radius: 6px;
+          border: 1px solid #4b5563;
+          background-color: #111827;
+          color: #e5e7eb;
+          cursor: pointer;
+          font-size: 0.875rem;
+        }
+        .page-btn:disabled {
+          opacity: 0.4;
+          cursor: default;
+        }
+        .page-indicator {
+          font-size: 0.875rem;
+          color: #e5e7eb;
+        }
       `}</style>
     </DashboardLayout>
   );
 }
+

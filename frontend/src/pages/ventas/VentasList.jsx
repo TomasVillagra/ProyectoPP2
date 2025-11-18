@@ -34,6 +34,7 @@ export default function VentasList() {
   const [estadosVenta, setEstadosVenta] = useState([]);
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(true);
+  const [downloadingId, setDownloadingId] = useState(null); // id de venta que está generando comprobante
 
   const fetchEstadosVenta = async () => {
     const candidates = [
@@ -126,6 +127,34 @@ export default function VentasList() {
     return false;
   };
 
+  // 🔹 Generar/descargar comprobante PDF (no válido como factura)
+  const handleComprobante = async (ventaId) => {
+    try {
+      setMsg("");
+      setDownloadingId(ventaId);
+
+      // Ajustá esta URL al endpoint que crees en Django para generar el PDF
+      const url = `/api/ventas/${ventaId}/comprobante-pdf/`;
+
+      const res = await api.get(url, { responseType: "blob" });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+
+      const link = document.createElement("a");
+      const href = URL.createObjectURL(blob);
+      link.href = href;
+      link.download = `comprobante_venta_${ventaId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(href);
+    } catch (e) {
+      console.error(e);
+      setMsg("No se pudo generar el comprobante PDF de la venta.");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div
@@ -156,7 +185,7 @@ export default function VentasList() {
                 <th>Empleado</th>
                 <th>Total</th>
                 <th>Estado</th>
-                <th style={{ width: 220 }}>Acciones</th>
+                <th style={{ width: 260 }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -174,7 +203,16 @@ export default function VentasList() {
                   v.cliente_nombre ?? v.cli_nombre ?? v.id_cliente ?? "-";
                 const empleado =
                   v.empleado_nombre ?? v.emp_nombre ?? v.id_empleado ?? "-";
-                const total = v.ven_total ?? v.total ?? 0;
+
+                // mismo campo que en VentaDetalle (ven_monto / monto)
+                const total = Number(
+                  v.ven_total ??
+                  v.total ??
+                  v.ven_monto ??
+                  v.monto ??
+                  0
+                );
+
                 const estadoNombre = getEstadoNombre(v); // ← siempre nombre (Pendiente, Cobrado, etc.)
                 const yaCobrada = esVentaCobrada(v);
 
@@ -210,6 +248,20 @@ export default function VentasList() {
                           Cobrar
                         </Link>
                       )}
+
+                      {/* Comprobante PDF: SOLO si está cobrada/pagada */}
+                      {yaCobrada && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() => handleComprobante(v.id_venta ?? id)}
+                          disabled={downloadingId === (v.id_venta ?? id)}
+                        >
+                          {downloadingId === (v.id_venta ?? id)
+                            ? "Generando..."
+                            : "Comprobante"}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -232,5 +284,7 @@ const styles = `
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
+
 
 

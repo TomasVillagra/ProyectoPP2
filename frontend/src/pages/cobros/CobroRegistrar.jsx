@@ -24,8 +24,8 @@ export default function CobroRegistrar() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  const [registro, setRegistro] = useState(null);   // venta o compra
-  const [tipoDoc, setTipoDoc] = useState(null);     // "venta" | "compra"
+  const [registro, setRegistro] = useState(null); // venta o compra
+  const [tipoDoc, setTipoDoc] = useState(null); // "venta" | "compra"
   const [metodosPago, setMetodosPago] = useState([]);
   const [cajaEstado, setCajaEstado] = useState(null);
   const [estadosVenta, setEstadosVenta] = useState([]); // sólo ventas
@@ -84,7 +84,10 @@ export default function CobroRegistrar() {
               tipoDetectado = "compra";
               dataDoc = compraRes.data;
             } catch (err2) {
-              console.error("No se encontró venta ni compra con ese ID:", err2);
+              console.error(
+                "No se encontró venta ni compra con ese ID:",
+                err2
+              );
               alert(`No se encontró venta ni compra con ID #${id_venta}.`);
               if (mounted) setLoading(false);
               return;
@@ -166,6 +169,19 @@ export default function CobroRegistrar() {
     );
     return Number.isNaN(v) ? null : v;
   }, [cajaEstado]);
+
+  // EFECTIVO disponible real: apertura + ingresos efectivo - egresos efectivo (desde la apertura actual)
+  const efectivoDisponible = useMemo(() => {
+    if (!cajaEstado) return null;
+
+    const v = Number(
+      cajaEstado.efectivo_disponible ??
+        cajaEstado.efectivoDisponible ??
+        cajaEstado.efectivo ??
+        saldoCaja // fallback al saldo total si por alguna razón no viene el campo nuevo
+    );
+    return Number.isNaN(v) ? null : v;
+  }, [cajaEstado, saldoCaja]);
 
   const montoDocumento = useMemo(() => {
     if (!registro) return 0;
@@ -316,16 +332,17 @@ export default function CobroRegistrar() {
       }
     }
 
-    // Si es COMPRA y método EFECTIVO, no dejar egresar más que lo que hay en caja
+    // Si es COMPRA y método EFECTIVO, no dejar egresar más que el EFECTIVO disponible
+    // (monto apertura + ingresos efectivo - egresos efectivo desde la apertura actual)
     if (
       tipoDoc === "compra" &&
       esEfectivoSeleccionado &&
-      saldoCaja != null &&
-      Number(montoDocumento) > Number(saldoCaja)
+      efectivoDisponible != null &&
+      Number(montoDocumento) > Number(efectivoDisponible)
     ) {
       alert(
         `No hay EFECTIVO suficiente en la caja para esta compra.\n` +
-          `Efectivo disponible: ${fmtARS(saldoCaja)}\n` +
+          `Efectivo disponible: ${fmtARS(efectivoDisponible)}\n` +
           `Egreso solicitado: ${fmtARS(montoDocumento)}`
       );
       return;
@@ -411,7 +428,7 @@ export default function CobroRegistrar() {
     resolveEstadoVentaId,
     estadoNombre,
     esEfectivoSeleccionado,
-    saldoCaja,
+    efectivoDisponible, // ← antes estaba saldoCaja
   ]);
 
   // ================== RENDER ==================
@@ -452,7 +469,7 @@ export default function CobroRegistrar() {
               </div>
               <div>
                 <span className="label">Método actual:</span>{" "}
-                <b>{metodoPagoActual || "— (sin asignar)"}</b>
+                <b>{metodoPagoActual || "— (sin asignar)"} </b>
               </div>
               <div>
                 <span className="label">Caja:</span>{" "}
@@ -460,12 +477,14 @@ export default function CobroRegistrar() {
                   {cajaAbierta ? "Abierta" : "Cerrada"}
                 </span>
               </div>
-              {tipoDoc === "compra" && esEfectivoSeleccionado && saldoCaja != null && (
-                <div>
-                  <span className="label">Efectivo disponible:</span>{" "}
-                  <b>{fmtARS(saldoCaja)}</b>
-                </div>
-              )}
+              {tipoDoc === "compra" &&
+                esEfectivoSeleccionado &&
+                efectivoDisponible != null && (
+                  <div>
+                    <span className="label">Efectivo disponible:</span>{" "}
+                    <b>{fmtARS(efectivoDisponible)}</b>
+                  </div>
+                )}
             </div>
             {!cajaAbierta && (
               <div className="alert-info" style={{ marginTop: 10 }}>
@@ -477,7 +496,9 @@ export default function CobroRegistrar() {
 
           <div className="card-dark">
             <h3 style={{ marginTop: 0 }}>
-              {tipoDoc === "compra" ? "Registrar pago de compra" : "Registrar cobro de venta"}
+              {tipoDoc === "compra"
+                ? "Registrar pago de compra"
+                : "Registrar cobro de venta"}
             </h3>
 
             <div className="field">
@@ -569,6 +590,7 @@ const styles = `
 .alert-warn { background:#7c2d12; color:#fde68a; padding:8px; border-radius:8px; }
 .alert-info { background:#1e3a8a; color:#bfdbfe; padding:8px; border-radius:8px; }
 `;
+
 
 
 

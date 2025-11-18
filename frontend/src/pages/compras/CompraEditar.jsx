@@ -106,6 +106,8 @@ export default function CompraEditar() {
   }, [id]);
 
   // ===== Handlers =====
+  // ⚠️ Ya no usamos onChange para los campos de cabecera (están deshabilitados),
+  // pero lo dejamos por si quieres reutilizarlo después para otros campos.
   const onChange = (e) =>
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
@@ -147,12 +149,13 @@ export default function CompraEditar() {
     e.preventDefault();
     setMsg("");
 
+    // Los campos de cabecera no se pueden editar, pero igual validamos que existan
     if (!form.id_empleado || !form.id_estado_compra) {
-      setMsg("Seleccioná empleado y estado.");
+      setMsg("Falta información de cabecera (empleado/estado).");
       return;
     }
     if (!form.id_proveedor) {
-      setMsg("Seleccioná un proveedor.");
+      setMsg("Falta el proveedor.");
       return;
     }
 
@@ -172,7 +175,7 @@ export default function CompraEditar() {
     }
 
     try {
-      // 1) Actualizar cabecera
+      // 1) Actualizar cabecera (solo monto cambia, el resto queda igual)
       await api.put(`/api/compras/${id}/`, {
         id_empleado: Number(form.id_empleado),
         id_estado_compra: Number(form.id_estado_compra),
@@ -229,18 +232,21 @@ export default function CompraEditar() {
 
   return (
     <DashboardLayout>
-      <h2 style={{ margin: 0, marginBottom: 12 }}>Editar Compra #{id}</h2>
+      <h2 style={{ margin: 0, marginBottom: 4 }}>Editar Compra #{id}</h2>
+      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, opacity: 0.9 }}>
+        En esta pantalla solo podés editar <strong>los insumos (cantidad, precio, agregar/quitar renglones)</strong>.
+        Los datos de cabecera (empleado, proveedor, estado, fecha, pagado) no se pueden modificar.
+      </p>
       {msg && <p style={{ whiteSpace: "pre-wrap" }}>{msg}</p>}
 
       <form onSubmit={onSubmit} className="form">
-        {/* Empleado */}
+        {/* Empleado (solo lectura) */}
         <div className="row">
           <label>Empleado =</label>
           <select
             name="id_empleado"
             value={form.id_empleado}
-            onChange={onChange}
-            required
+            disabled
           >
             <option value="">-- Seleccioná --</option>
             {empleados.map((e) => (
@@ -253,14 +259,13 @@ export default function CompraEditar() {
           </select>
         </div>
 
-        {/* Proveedor (solo activos + el actual) */}
+        {/* Proveedor (solo lectura) */}
         <div className="row">
           <label>Proveedor =</label>
           <select
             name="id_proveedor"
             value={form.id_proveedor}
-            onChange={onChange}
-            required
+            disabled
           >
             <option value="">-- Seleccioná --</option>
             {proveedores
@@ -279,14 +284,13 @@ export default function CompraEditar() {
           </select>
         </div>
 
-        {/* Estado */}
+        {/* Estado (solo lectura) */}
         <div className="row">
           <label>Estado =</label>
           <select
             name="id_estado_compra"
             value={form.id_estado_compra}
-            onChange={onChange}
-            required
+            disabled
           >
             <option value="">-- Seleccioná --</option>
             {estados.map((s) => (
@@ -300,35 +304,33 @@ export default function CompraEditar() {
           </select>
         </div>
 
-        {/* Descripción */}
+        {/* Descripción (solo lectura) */}
         <div className="row">
           <label>Descripción =</label>
           <input
             name="com_descripcion"
             value={form.com_descripcion}
-            onChange={onChange}
-            placeholder="Opcional"
+            readOnly
           />
         </div>
 
-        {/* Fecha / Hora */}
+        {/* Fecha / Hora (solo lectura) */}
         <div className="row">
           <label>Fecha/Hora =</label>
           <input
             name="com_fecha_hora"
             value={form.com_fecha_hora}
-            onChange={onChange}
-            placeholder="YYYY-MM-DD HH:MM:SS"
+            readOnly
           />
         </div>
 
-        {/* Pagado */}
+        {/* Pagado (solo lectura) */}
         <div className="row">
           <label>Pagado =</label>
           <select
             name="com_pagado"
             value={form.com_pagado}
-            onChange={onChange}
+            disabled
           >
             <option value="2">No</option>
             <option value="1">Sí</option>
@@ -461,6 +463,7 @@ textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 
 
 

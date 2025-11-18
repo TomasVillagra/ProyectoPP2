@@ -133,8 +133,8 @@ export default function DashboardLayout({ children, topRight = null }) {
     { key: "ventas", label: "Ventas", path: "/ventas", icon: <FaChartLine /> },
     { key: "caja", label: "Caja", path: "/caja", icon: <FaCashRegister /> },
     { key: "caja-historial", label: "Historial de caja", path: "/caja/historial", icon: <FaCashRegister /> },
-    { key: "movimientos", label: "Movivimientos", path: "/caja/movimientos", icon: <FaReceipt /> },
-    { key: "cobros", label: "Cobros / Facturas", path: "/cobros", icon: <FaFileInvoice /> },
+    { key: "movimientos", label: "Movimientos", path: "/caja/movimientos", icon: <FaReceipt /> },
+    
     
 
     // Stock / compras
@@ -156,7 +156,7 @@ export default function DashboardLayout({ children, topRight = null }) {
 
           { key: "empleados", label: "Empleados", path: "/empleados", icon: <FaUsers /> },
           { key: "proveedores", label: "Proveedores", path: "/proveedores", icon: <FaTruck /> },
-          { key: "configuracion", label: "Configuración", path: "/configuracion", icon: <FaCog /> },
+          
         ]
       : []),
   ],

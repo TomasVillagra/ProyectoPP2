@@ -391,9 +391,9 @@ export default function ComprasList() {
                           <Link
                             to={`/cobros/registrar/${id}`}
                             className="btn btn-pay"
-                            title="Registrar pago/cobro de la compra"
+                            title="Registrar pago de la compra"
                           >
-                            Cobrar
+                            Pagar
                           </Link>
                         )}
 

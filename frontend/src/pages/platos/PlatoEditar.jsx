@@ -130,8 +130,9 @@ export default function PlatoEditar() {
         if (num < 0) return "No puede ser negativo.";
         return "";
       case "pla_stock":
-        if (value === "") return "Ingresá el stock.";
-        if (!/^\d+$/.test(String(value))) return "Debe ser un entero (0 o más).";
+        // El stock se muestra pero no se edita, sólo validamos que sea entero si viene algo
+        if (value !== "" && !/^\d+$/.test(String(value)))
+          return "Debe ser un entero (0 o más).";
         return "";
       case "id_categoria_plato":
         if (!String(value).trim()) return "Seleccioná una categoría.";
@@ -212,6 +213,7 @@ export default function PlatoEditar() {
         plt_nombre: form.pla_nombre,
         pla_precio: Number(form.pla_precio),
         plt_precio: Number(form.pla_precio),
+        // 👇 Se envía el stock actual que vino del back, pero el usuario no lo puede cambiar
         pla_stock: Number(form.pla_stock),
         plt_stock: Number(form.pla_stock),
         id_categoria_plato: Number(form.id_categoria_plato),
@@ -251,8 +253,12 @@ export default function PlatoEditar() {
         <div className="row">
           <label htmlFor="pla_stock">Stock =</label>
           <input
-            id="pla_stock" name="pla_stock" type="text" inputMode="numeric"
-            value={form.pla_stock} onChange={onChange} onKeyDown={blockInvalidInt} required
+            id="pla_stock"
+            name="pla_stock"
+            type="text"
+            inputMode="numeric"
+            value={form.pla_stock}
+            readOnly   // 👈 AHORA NO SE PUEDE CAMBIAR
           />
         </div>
         {errors.pla_stock && <small className="err">{errors.pla_stock}</small>}
@@ -305,5 +311,6 @@ const styles = `
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 
 

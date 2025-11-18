@@ -299,11 +299,18 @@ class PedidoViewSet(ModelViewSet):
     def descontar_insumos(self, request, pk=None):
         asegurar_caja_abierta()
         """
-        Lógica con trazabilidad:
-        1) Despacha primero desde el stock del PLATO (Platos.plt_stock).
-        2) Si no alcanza, descuenta INSUMOS (DetalleRecetas.detr_cant_unid) para 'producir' el faltante.
-        3) Traza producción (suma a plt_stock) y despacho (resta lo producido).
+        Descuenta stock de platos e insumos SIN permitir que quede negativo.
+
+        Lógica:
+        1) Para cada detalle del pedido:
+           - Se usa primero el stock del PLATO (Platos.plt_stock).
+           - Si falta, se 'produce' el faltante usando la RECETA del plato
+             (DetalleRecetas.detr_cant_unid) y se consumen INSUMOS.
+        2) Antes de descontar, se calcula cuánto insumo total se necesitaría
+           y se valida que alcanza el stock de cada insumo.
+           Si NO alcanza, se devuelve 400 y NO se descuenta nada.
         """
+
         pedido = self.get_object()
 
         # Helpers acoplados a tu modelo real
@@ -315,12 +322,106 @@ class PedidoViewSet(ModelViewSet):
             # DetalleRecetas.detr_cant_unid
             return getattr(dr_obj, "detr_cant_unid", 0) or 0
 
+        # Traemos los detalles del pedido con sus platos
         detalles = (
             DetallePedidos.objects
             .select_related("id_plato")
             .filter(id_pedido=pedido)
         )
 
+        if not detalles.exists():
+            return Response({"detail": "El pedido no tiene ítems."}, status=400)
+
+        # ─────────────────────────────────────────────
+        # 1) PRIMER PASO: calcular insumos necesarios
+        # ─────────────────────────────────────────────
+        from decimal import Decimal
+
+        requeridos_por_insumo = {}  # {id_insumo: {"nombre": str, "total": Decimal}}
+        for det in detalles:
+            plato = getattr(det, "id_plato", None)
+            if not plato:
+                continue
+
+            cant_pedida = Decimal(str(get_cant_det_pedido(det)))
+            if cant_pedida <= 0:
+                continue
+
+            # Stock actual del plato
+            stock_plato = Decimal(str(getattr(plato, "plt_stock", 0) or 0))
+            consume_de_plato = min(stock_plato, cant_pedida)
+            faltante = cant_pedida - consume_de_plato  # lo que hay que producir
+
+            if faltante <= 0:
+                # Todo sale del stock del plato, no necesito insumos
+                continue
+
+            # Necesito receta para producir el faltante
+            receta = Recetas.objects.filter(id_plato=plato).first()
+            if not receta:
+                return Response(
+                    {
+                        "detail": (
+                            f"El plato '{plato.plt_nombre}' no tiene receta "
+                            f"definida para producir {faltante} unidad(es)."
+                        )
+                    },
+                    status=400,
+                )
+
+            detrec_qs = (
+                DetalleRecetas.objects
+                .select_related("id_insumo")
+                .filter(id_receta=receta)
+            )
+
+            for dr in detrec_qs:
+                insumo = getattr(dr, "id_insumo", None)
+                if not insumo:
+                    continue
+
+                qty_por_plato = Decimal(str(get_cant_det_receta(dr)))
+                if qty_por_plato <= 0:
+                    continue
+
+                total_desc = qty_por_plato * faltante  # Decimal * Decimal
+                if total_desc <= 0:
+                    continue
+
+                entry = requeridos_por_insumo.setdefault(
+                    insumo.id_insumo,
+                    {
+                        "nombre": insumo.ins_nombre,
+                        "total": Decimal("0"),
+                    },
+                )
+                entry["total"] += total_desc
+
+        # ─────────────────────────────────────────────
+        # 2) Validar stock de insumos antes de descontar
+        # ─────────────────────────────────────────────
+        if requeridos_por_insumo:
+            # Bloqueamos filas de insumos para evitar condiciones de carrera
+            ids = list(requeridos_por_insumo.keys())
+            for ins in Insumos.objects.select_for_update().filter(pk__in=ids):
+                necesario = requeridos_por_insumo[ins.id_insumo]["total"]
+                disponible = Decimal(str(ins.ins_stock_actual or 0))
+
+                if disponible < necesario:
+                    return Response(
+                        {
+                            "detail": (
+                                f"Insumo insuficiente: {ins.ins_nombre}. "
+                                f"Requiere {necesario} {ins.ins_unidad} "
+                                f"y solo hay {disponible}."
+                            )
+                        },
+                        status=400,
+                    )
+
+        # ─────────────────────────────────────────────
+        # 3) SEGUNDO PASO: ahora sí, descontar de verdad
+        # ─────────────────────────────────────────────
         movimientos = {"platos": [], "insumos": []}
 
         for det in detalles:
@@ -328,14 +429,14 @@ class PedidoViewSet(ModelViewSet):
             if not plato:
                 continue
 
-            cant_pedida = get_cant_det_pedido(det)
+            cant_pedida = Decimal(str(get_cant_det_pedido(det)))
             if cant_pedida <= 0:
                 continue
 
-            # 1) Despachar desde stock del plato
-            stock_plato = getattr(plato, "plt_stock", 0) or 0
+            # 3.1) Despachar desde stock del plato
+            stock_plato = Decimal(str(getattr(plato, "plt_stock", 0) or 0))
             consume_de_plato = min(stock_plato, cant_pedida)
-            faltante = max(cant_pedida - consume_de_plato, 0)
+            faltante = cant_pedida - consume_de_plato
 
             if consume_de_plato > 0:
                 Platos.objects.filter(pk=plato.pk).update(
@@ -348,56 +449,73 @@ class PedidoViewSet(ModelViewSet):
                     "campo": "plt_stock",
                 })
 
-            # 2) Si falta, consumir insumos según receta y trazar producción+despacho
+            # 3.2) Si falta, consumir insumos según receta y trazar producción + despacho
             if faltante > 0:
                 receta = Recetas.objects.filter(id_plato=plato).first()
-                if receta:
-                    detrec_qs = (
-                        DetalleRecetas.objects
-                        .select_related("id_insumo")
-                        .filter(id_receta=receta)
+                if not receta:
+                    # Esto en teoría no debería pasar, ya se validó arriba
+                    return Response(
+                        {
+                            "detail": (
+                                f"El plato '{plato.plt_nombre}' no tiene receta "
+                                f"para producir el faltante."
+                            )
+                        },
+                        status=400,
                     )
-                    # 2.a) Restar insumos por la producción del faltante
-                    for dr in detrec_qs:
-                        insumo = getattr(dr, "id_insumo", None)
-                        if not insumo:
-                            continue
-                        qty_por_plato = get_cant_det_receta(dr)
-                        if qty_por_plato <= 0:
-                            continue
 
-                        total_desc = qty_por_plato * faltante  # Decimal * int
-                        Insumos.objects.filter(pk=insumo.pk).update(
-                            ins_stock_actual=F("ins_stock_actual") - total_desc
-                        )
-                        movimientos["insumos"].append({
-                            "insumo_id": insumo.pk,
-                            "delta": float(-total_desc),
-                            "campo": "ins_stock_actual",
-                        })
+                detrec_qs = (
+                    DetalleRecetas.objects
+                    .select_related("id_insumo")
+                    .filter(id_receta=receta)
+                )
 
-                    # 2.b) Trazabilidad: producir (sumar) y despachar (restar) el faltante
-                    Platos.objects.filter(pk=plato.pk).update(
-                        plt_stock=F("plt_stock") + faltante
+                # 3.2.a) Restar insumos por la producción del faltante
+                for dr in detrec_qs:
+                    insumo = getattr(dr, "id_insumo", None)
+                    if not insumo:
+                        continue
+
+                    qty_por_plato = Decimal(str(get_cant_det_receta(dr)))
+                    if qty_por_plato <= 0:
+                        continue
+
+                    total_desc = qty_por_plato * faltante
+                    if total_desc <= 0:
+                        continue
+
+                    Insumos.objects.filter(pk=insumo.pk).update(
+                        ins_stock_actual=F("ins_stock_actual") - total_desc
                     )
-                    movimientos["platos"].append({
-                        "plato_id": plato.pk,
-                        "tipo": "produccion",
-                        "delta": float(+faltante),
-                        "campo": "plt_stock",
+                    movimientos["insumos"].append({
+                        "insumo_id": insumo.pk,
+                        "delta": float(-total_desc),
+                        "campo": "ins_stock_actual",
                     })
 
-                    Platos.objects.filter(pk=plato.pk).update(
-                        plt_stock=F("plt_stock") - faltante
-                    )
-                    movimientos["platos"].append({
-                        "plato_id": plato.pk,
-                        "tipo": "despacho",
-                        "delta": float(-faltante),
-                        "campo": "plt_stock",
-                    })
+                # 3.2.b) Trazabilidad: producir (sumar) y despachar (restar) el faltante
+                Platos.objects.filter(pk=plato.pk).update(
+                    plt_stock=F("plt_stock") + faltante
+                )
+                movimientos["platos"].append({
+                    "plato_id": plato.pk,
+                    "tipo": "produccion",
+                    "delta": float(+faltante),
+                    "campo": "plt_stock",
+                })
+
+                Platos.objects.filter(pk=plato.pk).update(
+                    plt_stock=F("plt_stock") - faltante
+                )
+                movimientos["platos"].append({
+                    "plato_id": plato.pk,
+                    "tipo": "despacho",
+                    "delta": float(-faltante),
+                    "campo": "plt_stock",
+                })
 
         return Response({"ok": True, "movimientos": movimientos})
+
     
     @action(detail=True, methods=["post"], url_path="generar_venta")
     def generar_venta(self, request, pk=None):
@@ -584,9 +702,87 @@ class PedidoViewSet(ModelViewSet):
         data["detalles"] = DetalleVentaSerializer(detqs, many=True).data
         return Response(data, status=201)
         # ── Bloqueo general de escritura ────────────────────────────
+    @transaction.atomic
     def create(self, request, *args, **kwargs):
         asegurar_caja_abierta()
+
+        from decimal import Decimal
+
+        data = request.data
+        detalles = data.get("detalles", [])
+
+        if not detalles:
+            return Response({"detail": "El pedido no contiene ítems."}, status=400)
+
+        # Acumulador de insumos necesarios
+        requeridos = {}   # { id_insumo: {"nombre":..., "unidad":..., "total": Decimal} }
+
+        for det in detalles:
+            plato_id = det.get("id_plato")
+            cantidad = Decimal(str(det.get("detped_cantidad", 0)))
+
+            if cantidad <= 0:
+                return Response({"detail": "Cantidad inválida en un ítem."}, status=400)
+
+            plato = Platos.objects.filter(pk=plato_id).first()
+            if not plato:
+                return Response({"detail": f"El plato con ID {plato_id} no existe."}, status=400)
+
+            stock_plato = Decimal(str(plato.plt_stock))
+            desde_stock = min(stock_plato, cantidad)
+            faltante = cantidad - desde_stock
+
+            # Si NO falta, seguir
+            if faltante <= 0:
+                continue
+
+            # Si falta → usar receta
+            receta = Recetas.objects.filter(id_plato=plato).first()
+            if not receta:
+                return Response({
+                    "detail": f"El plato '{plato.plt_nombre}' no tiene receta para producir {faltante} unidad(es)."
+                }, status=400)
+
+            detalles_receta = (
+                DetalleRecetas.objects
+                .select_related("id_insumo")
+                .filter(id_receta=receta)
+            )
+
+            for dr in detalles_receta:
+                insumo = dr.id_insumo
+                por_plato = Decimal(str(dr.detr_cant_unid))
+                total_necesario = por_plato * faltante
+
+                entry = requeridos.setdefault(insumo.id_insumo, {
+                    "nombre": insumo.ins_nombre,
+                    "unidad": insumo.ins_unidad,
+                    "total": Decimal("0"),
+                })
+
+                entry["total"] += total_necesario
+
+        # VALIDAR STOCK DE INSUMOS
+        if requeridos:
+            ids = requeridos.keys()
+            for ins in Insumos.objects.filter(pk__in=ids):
+                necesario = requeridos[ins.id_insumo]["total"]
+                disponible = Decimal(str(ins.ins_stock_actual))
+
+                if disponible < necesario:
+                    return Response(
+                        {
+                            "detail": (
+                                f"Insumo insuficiente: {ins.ins_nombre}. "
+                                f"Requiere {necesario} {ins.ins_unidad} y solo hay {disponible}."
+                            )
+                        },
+                        status=400
+                    )
+
+        # Si todo OK → CREAR EL PEDIDO NORMALMENTE
         return super().create(request, *args, **kwargs)
+
 
     def update(self, request, *args, **kwargs):
         asegurar_caja_abierta()
@@ -612,6 +808,83 @@ class VentaViewSet(ModelViewSet):
     queryset = Ventas.objects.all().order_by("-id_venta")
     serializer_class = VentaSerializer
     permission_classes = [IsAuthenticated]
+    # ------------------------------------------------------------------
+    # /api/ventas/<id>/comprobante-pdf/
+    # Genera un comprobante PDF (NO válido como factura)
+    # ------------------------------------------------------------------
+    @action(detail=True, methods=["get"], url_path="comprobante-pdf")
+    def comprobante_pdf(self, request, pk=None):
+        from reportlab.pdfgen import canvas
+        from io import BytesIO
+        from django.http import HttpResponse
+
+        venta = self.get_object()
+        detalles = DetalleVentas.objects.filter(id_venta=venta.id_venta).select_related("id_plato")
+
+        # Crear PDF en memoria
+        buffer = BytesIO()
+        p = canvas.Canvas(buffer)
+
+        # Encabezado
+        p.setFont("Helvetica-Bold", 16)
+        p.drawString(50, 800, "Pizzería Rex")
+        p.setFont("Helvetica", 10)
+        p.drawString(50, 785, "COMPROBANTE DE VENTA (NO VÁLIDO COMO FACTURA)")
+
+        y = 760
+        p.setFont("Helvetica", 11)
+
+        # Datos de la venta
+        p.drawString(50, y, f"Venta Nº: {venta.id_venta}")
+        y -= 15
+        p.drawString(50, y, f"Fecha: {venta.ven_fecha_hora}")
+        y -= 15
+        p.drawString(50, y, f"Cliente: {venta.id_cliente.cli_nombre if venta.id_cliente else '-'}")
+        y -= 15
+        p.drawString(50, y, f"Empleado: {venta.id_empleado.emp_nombre if venta.id_empleado else '-'}")
+        y -= 25
+
+        # Tabla
+        p.setFont("Helvetica-Bold", 10)
+        p.drawString(50, y, "Plato")
+        p.drawString(280, y, "Cant.")
+        p.drawString(330, y, "P.Unit.")
+        p.drawString(400, y, "Subtotal")
+        p.setFont("Helvetica", 10)
+        y -= 15
+
+        total = 0
+
+        for det in detalles:
+            plato = det.id_plato.plt_nombre
+            cant = det.detven_cantidad
+            pu = float(det.detven_precio_uni)
+            sub = cant * pu
+            total += sub
+
+            p.drawString(50, y, plato[:35])
+            p.drawRightString(310, y, str(cant))
+            p.drawRightString(360, y, f"${pu:.2f}")
+            p.drawRightString(480, y, f"${sub:.2f}")
+            y -= 15
+
+            if y < 80:  # salto de página
+                p.showPage()
+                y = 800
+
+        # Total
+        p.setFont("Helvetica-Bold", 12)
+        p.drawRightString(480, y - 10, f"TOTAL: ${total:.2f}")
+
+        p.showPage()
+        p.save()
+        buffer.seek(0)
+
+        filename = f"comprobante_venta_{venta.id_venta}.pdf"
+        response = HttpResponse(buffer, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
     # ── Bloqueo general de escritura ────────────────────────────
     def create(self, request, *args, **kwargs):
         asegurar_caja_abierta()
@@ -752,6 +1025,13 @@ class RecetaViewSet(ModelViewSet):
     serializer_class = RecetaSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        plato_id = self.request.query_params.get("id_plato")
+        if plato_id:
+            qs = qs.filter(id_plato_id=plato_id)
+        return qs
+
 class DetalleRecetaViewSet(ModelViewSet):
     queryset = (
         DetalleRecetas.objects
@@ -761,6 +1041,14 @@ class DetalleRecetaViewSet(ModelViewSet):
     )
     serializer_class = DetalleRecetaSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        rec_id = self.request.query_params.get("id_receta")
+        if rec_id:
+            qs = qs.filter(id_receta_id=rec_id)
+        return qs
+
 
 class CategoriaPlatoViewSet(ModelViewSet):
     queryset = CategoriaPlatos.objects.all().order_by("-id_categoria_plato")
@@ -854,18 +1142,23 @@ class ProveedorInsumoViewSet(ModelViewSet):
 # ──────────────────────────────────────────────────────────────────────────────
 # ESTADO DE CAJA
 # ──────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# ESTADO DE CAJA
+# ──────────────────────────────────────────────────────────────────────────────
 class CajaEstadoView(APIView):
     """
     GET /api/caja/estado/
     Devuelve:
-      {
-        "abierta": true|false,
+        "abierta": bool,
         "apertura": {...} | null,
         "cierre": {...} | null,
         "hoy_ingresos": "1234.56",
         "hoy_egresos": "200.00",
-        "hoy_saldo": "1034.56"
-      }
+        "hoy_saldo": "1034.56",
+        "totales_metodo": [
+            { "id_metodo_pago": 1, "nombre": "Efectivo", "total": 1500.00 },
+            ...
+        ]
     """
     def get(self, request):
         hoy = timezone.localdate()
@@ -876,50 +1169,141 @@ class CajaEstadoView(APIView):
             timezone.datetime.combine(hoy, timezone.datetime.max.time())
         )
 
-        ID_APERTURA = 1
-        ID_INGRESO  = 2
-        ID_EGRESO   = 3
-        ID_CIERRE   = 4
+        ID_APERTURA = TIPO_MOV_CAJA["APERTURA"]
+        ID_INGRESO  = TIPO_MOV_CAJA["INGRESO"]
+        ID_EGRESO   = TIPO_MOV_CAJA["EGRESO"]
+        ID_CIERRE   = TIPO_MOV_CAJA["CIERRE"]
 
-        qs_hoy = MovimientosCaja.objects.filter(mv_fecha_hora__range=(inicio, fin))
+        qs_dia = (
+            MovimientosCaja.objects
+            .select_related("id_metodo_pago", "id_tipo_movimiento_caja")
+            .filter(mv_fecha_hora__range=(inicio, fin))
+        )
 
         # Último movimiento del día → define si la caja está abierta o cerrada
-        ultimo = qs_hoy.order_by("mv_fecha_hora").last()
-        if ultimo:
-            caja_abierta = (ultimo.id_tipo_movimiento_caja_id != ID_CIERRE)
-        else:
-            caja_abierta = False
+        ultimo = qs_dia.order_by("mv_fecha_hora").last()
+        caja_abierta = bool(ultimo and ultimo.id_tipo_movimiento_caja_id != ID_CIERRE)
 
+        # Última apertura de HOY
         apertura = (
-            qs_hoy.filter(id_tipo_movimiento_caja_id=ID_APERTURA)
-            .order_by("mv_fecha_hora")
-            .first()
-        )
-        cierre = (
-            qs_hoy.filter(id_tipo_movimiento_caja_id=ID_CIERRE)
+            qs_dia.filter(id_tipo_movimiento_caja_id=ID_APERTURA)
             .order_by("-mv_fecha_hora")
             .first()
         )
 
-        ingresos = (
-            qs_hoy.filter(id_tipo_movimiento_caja_id=ID_INGRESO)
-            .aggregate(s=Sum("mv_monto"))["s"] or 0
+        # Último cierre de HOY (si hubiera)
+        cierre = (
+            qs_dia.filter(id_tipo_movimiento_caja_id=ID_CIERRE)
+            .order_by("-mv_fecha_hora")
+            .first()
         )
-        egresos = (
-            qs_hoy.filter(id_tipo_movimiento_caja_id=ID_EGRESO)
-            .aggregate(s=Sum("mv_monto"))["s"] or 0
-        )
+
+        # Rango para ingresos/egresos: DESDE LA ÚLTIMA APERTURA DE HOY
+        if apertura:
+            movs_rango = qs_dia.filter(mv_fecha_hora__gte=apertura.mv_fecha_hora)
+        else:
+            movs_rango = qs_dia
+
+        ingresos_qs = movs_rango.filter(id_tipo_movimiento_caja_id=ID_INGRESO)
+        egresos_qs  = movs_rango.filter(id_tipo_movimiento_caja_id=ID_EGRESO)
+
+        total_ingresos = ingresos_qs.aggregate(s=Sum("mv_monto"))["s"] or Decimal("0")
+        total_egresos  = egresos_qs.aggregate(s=Sum("mv_monto"))["s"] or Decimal("0")
+        saldo = total_ingresos - total_egresos
+
+        # Totales por método de pago (desde la apertura actual)
+        totales_metodo = []
+        for row in (
+            ingresos_qs
+            .values("id_metodo_pago", "id_metodo_pago__metpag_nombre")
+            .annotate(total=Sum("mv_monto"))
+            .order_by("id_metodo_pago__metpag_nombre")
+        ):
+            totales_metodo.append(
+                {
+                    "id_metodo_pago": row["id_metodo_pago"],
+                    "nombre": row["id_metodo_pago__metpag_nombre"] or "Sin método",
+                    # Lo mando como número; en el front usás Number()
+                    "total": float(row["total"] or 0),
+                }
+            )
 
         from .serializers import MovimientoCajaSerializer
 
-        return Response({
-            "abierta": caja_abierta,
-            "apertura": MovimientoCajaSerializer(apertura).data if apertura else None,
-            "cierre": MovimientoCajaSerializer(cierre).data if cierre else None,
-            "hoy_ingresos": f"{ingresos:.2f}",
-            "hoy_egresos": f"{egresos:.2f}",
-            "hoy_saldo": f"{(ingresos - egresos):.2f}",
-        })
+        return Response(
+            {
+                "abierta": caja_abierta,
+                "apertura": MovimientoCajaSerializer(apertura).data if apertura else None,
+                "cierre": MovimientoCajaSerializer(cierre).data if cierre else None,
+                "hoy_ingresos": f"{total_ingresos:.2f}",
+                "hoy_egresos": f"{total_egresos:.2f}",
+                "hoy_saldo": f"{saldo:.2f}",
+                "totales_metodo": totales_metodo,
+            }
+        )
+
+
+
+class CajaIngresosSemanalesView(APIView):
+    """
+    GET /api/caja/ingresos-semanales/
+
+    Devuelve ingresos por día para los últimos 7 días
+    ANTERIORES A HOY (incluyendo hoy) sin contar domingos.
+
+    Formato:
+    {
+      "dias": [
+        {"fecha": "2025-11-12", "label": "Mié", "ingresos": "3800.00"},
+        ...
+      ]
+    }
+    """
+    def get(self, request):
+        from datetime import datetime, timedelta
+
+        hoy = timezone.localdate()
+
+        # Recolectar 7 días (no domingos), contando hoy hacia atrás
+        dias = []
+        current = hoy
+        while len(dias) < 7:
+            # weekday(): 0=Lun ... 6=Dom → descartamos 6
+            if current.weekday() != 6:
+                dias.append(current)
+            current = current - timedelta(days=1)
+
+        dias = list(reversed(dias))  # ordenar de más viejo → hoy
+
+        ID_INGRESO = 2  # ajustá si tu ID de "ingreso" es otro
+
+        nombres = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+        salida = []
+
+        for d in dias:
+            inicio = timezone.make_aware(
+                datetime.combine(d, datetime.min.time())
+            )
+            fin = timezone.make_aware(
+                datetime.combine(d, datetime.max.time())
+            )
+
+            total = (
+                MovimientosCaja.objects.filter(
+                    mv_fecha_hora__range=(inicio, fin),
+                    id_tipo_movimiento_caja_id=ID_INGRESO,
+                ).aggregate(s=Sum("mv_monto"))["s"] or Decimal("0.00")
+            )
+
+            salida.append({
+                "fecha": d.isoformat(),
+                "label": nombres[d.weekday()],
+                "ingresos": f"{total:.2f}",
+            })
+
+        return Response({"dias": salida})
+
+
 
 
 
@@ -1021,6 +1405,7 @@ class MovimientosCajaViewSet(viewsets.ModelViewSet):
         elif tipo_id == ID_EGRESO:
             # Egreso: sin venta ni método de pago
             data["id_venta"] = None
+
             # mv_monto lo debe mandar el front (> 0)
 
         elif tipo_id == ID_CIERRE:
@@ -1198,6 +1583,7 @@ class CajaHistorialView(APIView):
     - total del ciclo (apertura + ingresos - egresos)
     - ingresos por método de pago
     - egresos por método de pago
+    - empleado que hizo la apertura y el cierre
     """
     def get(self, request):
 
@@ -1235,40 +1621,281 @@ class CajaHistorialView(APIView):
                 mv_fecha_hora__lte=cierre.mv_fecha_hora
             )
 
-            ingresos_por_mp = (
+            # Agrupar ingresos / egresos por método
+            ingresos_qs = (
                 movimientos.filter(id_tipo_movimiento_caja_id=ID_INGRESO)
                 .values("id_metodo_pago__metpag_nombre")
                 .annotate(total=Sum("mv_monto"))
                 .order_by("id_metodo_pago__metpag_nombre")
             )
 
-            egresos_por_mp = (
+            egresos_qs = (
                 movimientos.filter(id_tipo_movimiento_caja_id=ID_EGRESO)
                 .values("id_metodo_pago__metpag_nombre")
                 .annotate(total=Sum("mv_monto"))
                 .order_by("id_metodo_pago__metpag_nombre")
             )
 
-            total_ing = sum([r["total"] or 0 for r in ingresos_por_mp])
-            total_egr = sum([r["total"] or 0 for r in egresos_por_mp])
+            # Pasar a listas mutables
+            ingresos_por_mp = list(ingresos_qs)
+            egresos_por_mp = list(egresos_qs)
+
+            # ───────── INCLUIR LA APERTURA EN EL MÉTODO EFECTIVO ─────────
+            # Solo para el resumen por método, NO para los totales generales.
+            monto_apertura = apertura.mv_monto or 0
+            nombre_efectivo = None
+            try:
+                if apertura.id_metodo_pago:
+                    nombre_efectivo = apertura.id_metodo_pago.metpag_nombre
+            except Exception:
+                nombre_efectivo = None
+
+            if monto_apertura and nombre_efectivo:
+                encontrado = False
+                for fila in ingresos_por_mp:
+                    if fila["id_metodo_pago__metpag_nombre"] == nombre_efectivo:
+                        fila["total"] = (fila["total"] or 0) + monto_apertura
+                        encontrado = True
+                        break
+                if not encontrado:
+                    ingresos_por_mp.append({
+                        "id_metodo_pago__metpag_nombre": nombre_efectivo,
+                        "total": monto_apertura,
+                    })
+
+            # Totales GENERALES (sin contar la apertura como ingreso)
+            total_ing = sum([(r["total"] or 0) for r in ingresos_qs])
+            total_egr = sum([(r["total"] or 0) for r in egresos_qs])
 
             total_final = (apertura.mv_monto or 0) + total_ing - total_egr
 
+            # Empleado apertura / cierre
+            def nombre_empleado(mov):
+                try:
+                    emp = mov.id_empleado
+                    if not emp:
+                        return None
+                    nombre = (emp.emp_nombre or "").strip()
+                    apellido = (emp.emp_apellido or "").strip()
+                    full = f"{nombre} {apellido}".strip()
+                    return full or None
+                except Exception:
+                    return None
+
+            apertura_emp = nombre_empleado(apertura)
+            cierre_emp = nombre_empleado(cierre)
+
             historial.append({
+                "id_cierre": cierre.id_movimiento_caja,  # ← NUEVO
                 "cierre_fecha": cierre.mv_fecha_hora,
                 "apertura_fecha": apertura.mv_fecha_hora,
                 "monto_apertura": float(apertura.mv_monto or 0),
                 "ingresos": float(total_ing),
                 "egresos": float(total_egr),
                 "total_final": float(total_final),
+                "apertura_empleado_nombre": apertura_emp or "-",
+                "cierre_empleado_nombre": cierre_emp or "-",
                 "por_metodo_ingresos": [
-                    {"metodo": i["id_metodo_pago__metpag_nombre"], "monto": float(i["total"] or 0)}
+                    {
+                        "metodo": i["id_metodo_pago__metpag_nombre"],
+                        "monto": float(i["total"] or 0),
+                    }
                     for i in ingresos_por_mp
                 ],
                 "por_metodo_egresos": [
-                    {"metodo": e["id_metodo_pago__metpag_nombre"], "monto": float(e["total"] or 0)}
+                    {
+                        "metodo": e["id_metodo_pago__metpag_nombre"],
+                        "monto": float(e["total"] or 0),
+                    }
                     for e in egresos_por_mp
                 ],
             })
 
+
         return Response(historial, status=200)
+
+class CajaHistorialDetalleView(APIView):
+    """
+    GET /api/caja/historial/<cierre_id>/
+
+    Devuelve un solo ciclo de caja (apertura → cierre)
+    con el mismo resumen que el historial + el detalle
+    de TODOS los movimientos entre esas fechas.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, cierre_id):
+        ID_APERTURA = TIPO_MOV_CAJA["APERTURA"]  # 1
+        ID_INGRESO  = TIPO_MOV_CAJA["INGRESO"]   # 2
+        ID_EGRESO   = TIPO_MOV_CAJA["EGRESO"]    # 3
+        ID_CIERRE   = TIPO_MOV_CAJA["CIERRE"]    # 4
+
+        # 1) Buscar el movimiento de CIERRE
+        cierre = (
+            MovimientosCaja.objects
+            .select_related("id_empleado", "id_metodo_pago", "id_tipo_movimiento_caja")
+            .filter(
+                id_tipo_movimiento_caja_id=ID_CIERRE,
+                id_movimiento_caja=cierre_id,
+            )
+            .first()
+        )
+        if not cierre:
+            return Response(
+                {"detail": "Cierre no encontrado para ese ID."},
+                status=404,
+            )
+
+        # 2) Buscar la APERTURA inmediatamente anterior a ese cierre
+        apertura = (
+            MovimientosCaja.objects
+            .select_related("id_empleado", "id_metodo_pago", "id_tipo_movimiento_caja")
+            .filter(
+                id_tipo_movimiento_caja_id=ID_APERTURA,
+                mv_fecha_hora__lte=cierre.mv_fecha_hora,
+            )
+            .order_by("-mv_fecha_hora")
+            .first()
+        )
+        if not apertura:
+            return Response(
+                {"detail": "No se encontró una apertura asociada a ese cierre."},
+                status=404,
+            )
+
+        # 3) Movimientos entre apertura y cierre (INCLUIDOS)
+        movimientos = (
+            MovimientosCaja.objects
+            .select_related(
+                "id_empleado",
+                "id_metodo_pago",
+                "id_tipo_movimiento_caja",
+                "id_venta",
+            )
+            .filter(
+                mv_fecha_hora__gte=apertura.mv_fecha_hora,
+                mv_fecha_hora__lte=cierre.mv_fecha_hora,
+            )
+            .order_by("mv_fecha_hora")
+        )
+
+        # 4) Agregados por método de pago (igual que en CajaHistorialView)
+        ingresos_qs = (
+            movimientos.filter(id_tipo_movimiento_caja_id=ID_INGRESO)
+            .values("id_metodo_pago__metpag_nombre")
+            .annotate(total=Sum("mv_monto"))
+            .order_by("id_metodo_pago__metpag_nombre")
+        )
+        egresos_qs = (
+            movimientos.filter(id_tipo_movimiento_caja_id=ID_EGRESO)
+            .values("id_metodo_pago__metpag_nombre")
+            .annotate(total=Sum("mv_monto"))
+            .order_by("id_metodo_pago__metpag_nombre")
+        )
+
+        ingresos_por_mp = list(ingresos_qs)
+        egresos_por_mp = list(egresos_qs)
+
+        # Sumar la apertura al método EFECTIVO dentro de los ingresos
+        monto_apertura = float(apertura.mv_monto or 0)
+        nombre_efectivo = getattr(apertura.id_metodo_pago, "metpag_nombre", "Efectivo")
+
+        if monto_apertura > 0:
+            idx_existente = None
+            for i, r in enumerate(ingresos_por_mp):
+                if (r["id_metodo_pago__metpag_nombre"] or "Sin método") == nombre_efectivo:
+                    idx_existente = i
+                    break
+
+            if idx_existente is not None:
+                ingresos_por_mp[idx_existente]["total"] = (
+                    (ingresos_por_mp[idx_existente]["total"] or 0) + monto_apertura
+                )
+            else:
+                ingresos_por_mp.append({
+                    "id_metodo_pago__metpag_nombre": nombre_efectivo,
+                    "total": monto_apertura,
+                })
+
+        # Totales generales (sin contar la apertura como ingreso)
+        total_ing = sum((r["total"] or 0) for r in ingresos_qs)
+        total_egr = sum((r["total"] or 0) for r in egresos_qs)
+        total_final = (apertura.mv_monto or 0) + total_ing - total_egr
+
+        # Helpers para nombre de empleado
+        def nombre_empleado(mov):
+            try:
+                emp = mov.id_empleado
+                if not emp:
+                    return None
+                nombre = (emp.emp_nombre or "").strip()
+                apellido = (emp.emp_apellido or "").strip()
+                full = f"{nombre} {apellido}".strip()
+                return full or None
+            except Exception:
+                return None
+
+        apertura_emp = nombre_empleado(apertura)
+        cierre_emp = nombre_empleado(cierre)
+
+        # 5) Serializar movimientos individuales
+        movs_serializados = []
+        for m in movimientos:
+            tipo_nombre = ""
+            try:
+                tipo_nombre = m.id_tipo_movimiento_caja.tmovc_nombre
+            except Exception:
+                # fallback rápido
+                if m.id_tipo_movimiento_caja_id == ID_APERTURA:
+                    tipo_nombre = "Apertura"
+                elif m.id_tipo_movimiento_caja_id == ID_INGRESO:
+                    tipo_nombre = "Ingreso"
+                elif m.id_tipo_movimiento_caja_id == ID_EGRESO:
+                    tipo_nombre = "Egreso"
+                elif m.id_tipo_movimiento_caja_id == ID_CIERRE:
+                    tipo_nombre = "Cierre"
+
+            metodo_nombre = ""
+            try:
+                metodo_nombre = m.id_metodo_pago.metpag_nombre
+            except Exception:
+                metodo_nombre = ""
+
+            movs_serializados.append({
+                "id": m.id_movimiento_caja,
+                "fecha": m.mv_fecha_hora,
+                "tipo": tipo_nombre,
+                "metodo": metodo_nombre,
+                "monto": float(m.mv_monto or 0),
+                "observacion": getattr(m, "mv_descripcion", "") or "",
+            })
+
+        # 6) Armar respuesta
+        data = {
+            "id_cierre": cierre.id_movimiento_caja,
+            "cierre_fecha": cierre.mv_fecha_hora,
+            "apertura_fecha": apertura.mv_fecha_hora,
+            "monto_apertura": float(apertura.mv_monto or 0),
+            "ingresos": float(total_ing),
+            "egresos": float(total_egr),
+            "total_final": float(total_final),
+            "apertura_empleado_nombre": apertura_emp or "-",
+            "cierre_empleado_nombre": cierre_emp or "-",
+            "por_metodo_ingresos": [
+                {
+                    "metodo": i["id_metodo_pago__metpag_nombre"],
+                    "monto": float(i["total"] or 0),
+                }
+                for i in ingresos_por_mp
+            ],
+            "por_metodo_egresos": [
+                {
+                    "metodo": e["id_metodo_pago__metpag_nombre"],
+                    "monto": float(e["total"] or 0),
+                }
+                for e in egresos_por_mp
+            ],
+            "movimientos": movs_serializados,
+        }
+
+        return Response(data, status=200)

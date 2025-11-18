@@ -31,10 +31,7 @@ function fmtDate(dt) {
 }
 
 async function fetchVenta(id) {
-  const candidates = [
-    `/api/ventas/${id}/`,
-    `/api/venta/${id}/`,
-  ];
+  const candidates = [`/api/ventas/${id}/`, `/api/venta/${id}/`];
   for (const u of candidates) {
     try {
       const res = await api.get(u);
@@ -73,7 +70,27 @@ async function fetchPlato(platoId) {
   return null;
 }
 const readPlatoNombre = (p, fallback = "") =>
-  p?.plt_nombre ?? p?.nombre ?? (fallback || `#${p?.id_plato ?? p?.id ?? ""}`);
+  p?.plt_nombre ??
+  p?.nombre ??
+  (fallback || `#${p?.id_plato ?? p?.id ?? ""}`);
+
+// 🔹 NUEVO: catálogo de estados de venta
+async function fetchEstadosVenta() {
+  const urls = [
+    "/api/estado-ventas/",
+    "/api/estado_ventas/",
+    "/api/estados-venta/",
+    "/api/estadosventa/",
+  ];
+  for (const u of urls) {
+    try {
+      const res = await api.get(u);
+      const list = normalize(res);
+      if (Array.isArray(list)) return list;
+    } catch {}
+  }
+  return [];
+}
 
 /* ---------------------------
    Página
@@ -87,6 +104,7 @@ export default function VentaDetalle() {
   const [platosCache, setPlatosCache] = useState(new Map());
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
+  const [estadosVenta, setEstadosVenta] = useState([]); // 🔹 NUEVO
 
   useEffect(() => {
     (async () => {
@@ -99,6 +117,11 @@ export default function VentaDetalle() {
           setLoading(false);
           return;
         }
+
+        // 🔹 NUEVO: cargar catálogo de estados
+        const ests = await fetchEstadosVenta();
+        setEstadosVenta(ests);
+
         setVenta(v);
 
         const dets = await fetchDetalles(v.id_venta ?? v.id ?? id);
@@ -123,15 +146,17 @@ export default function VentaDetalle() {
     })();
   }, [id]);
 
-  const totalCalculado = useMemo(() => {
-    return detalles.reduce((acc, d) => {
-      const cant = Number(d.detven_cantidad ?? d.cantidad ?? 0);
-      const unit = Number(d.detven_precio_uni ?? d.precio_unitario ?? 0);
-      const sub = Number(d.detven_subtotal ?? d.subtotal ?? unit * cant);
-      const add = Number.isFinite(sub) ? sub : 0;
-      return acc + add;
-    }, 0);
-  }, [detalles]);
+  const totalCalculado = useMemo(
+    () =>
+      detalles.reduce((acc, d) => {
+        const cant = Number(d.detven_cantidad ?? d.cantidad ?? 0);
+        const unit = Number(d.detven_precio_uni ?? d.precio_unitario ?? 0);
+        const sub = Number(d.detven_subtotal ?? d.subtotal ?? unit * cant);
+        const add = Number.isFinite(sub) ? sub : 0;
+        return acc + add;
+      }, 0),
+    [detalles]
+  );
 
   const venMonto = Number(venta?.ven_monto ?? venta?.monto ?? 0);
   const totalOK = Math.abs(venMonto - totalCalculado) < 0.01;
@@ -146,22 +171,67 @@ export default function VentaDetalle() {
     venta?.emp_nombre ??
     (venta?.id_empleado != null ? `#${venta?.id_empleado}` : "-");
 
-  const estadoStr =
-    venta?.estado_nombre ??
-    venta?.estven_nombre ??
-    (venta?.id_estado_venta != null ? `#${venta?.id_estado_venta}` : "-");
+  // 🔹 NUEVO: mostrar SIEMPRE el nombre del estado
+  const estadoStr = (() => {
+    // si ya viene nombre de una
+    const nombreDirecto =
+      venta?.estado_nombre ??
+      venta?.estven_nombre ??
+      null;
+    if (nombreDirecto) return nombreDirecto;
+
+    // si viene como objeto
+    if (venta?.id_estado_venta && typeof venta.id_estado_venta === "object") {
+      return (
+        venta.id_estado_venta.estven_nombre ??
+        venta.id_estado_venta.nombre ??
+        "-"
+      );
+    }
+
+    // si viene solo el id → buscar en catálogo
+    const idEst = venta?.id_estado_venta;
+    if (idEst && estadosVenta.length > 0) {
+      const encontrado = estadosVenta.find(
+        (e) =>
+          String(e.id_estado_venta ?? e.id) === String(idEst)
+      );
+      if (encontrado) {
+        return (
+          encontrado.estven_nombre ??
+          encontrado.nombre ??
+          "-"
+        );
+      }
+    }
+
+    return "-";
+  })();
 
   return (
     <DashboardLayout>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-        <h2 style={{margin:0,color:"#fff"}}>Venta #{venta?.id_venta ?? venta?.id ?? id}</h2>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          <Link className="btn btn-secondary" to="/ventas">Volver a Ventas</Link>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 12,
+        }}
+      >
+        <h2 style={{ margin: 0, color: "#fff" }}>
+          Venta #{venta?.id_venta ?? venta?.id ?? id}
+        </h2>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Link className="btn btn-secondary" to="/ventas">
+            Volver a Ventas
+          </Link>
         </div>
       </div>
 
       {loading && <p>Cargando...</p>}
-      {msg && <p style={{color:"#facc15", whiteSpace:"pre-wrap"}}>{msg}</p>}
+      {msg && (
+        <p style={{ color: "#facc15", whiteSpace: "pre-wrap" }}>{msg}</p>
+      )}
 
       {!loading && venta && (
         <>
@@ -169,7 +239,13 @@ export default function VentaDetalle() {
             <div className="grid">
               <div>
                 <div className="muted">Fecha/Hora</div>
-                <div>{fmtDate(venta.ven_fecha_hora ?? venta.fecha ?? venta.created_at)}</div>
+                <div>
+                  {fmtDate(
+                    venta.ven_fecha_hora ??
+                      venta.fecha ??
+                      venta.created_at
+                  )}
+                </div>
               </div>
               <div>
                 <div className="muted">Cliente</div>
@@ -189,47 +265,74 @@ export default function VentaDetalle() {
               </div>
               <div>
                 <div className="muted">Total (ven_monto)</div>
-                <div style={{fontWeight:700}}>${money(venMonto)}</div>
+                <div style={{ fontWeight: 700 }}>${money(venMonto)}</div>
               </div>
               <div>
                 <div className="muted">Total calculado (detalles)</div>
-                <div style={{fontWeight:700, color: totalOK ? "#22c55e" : "#f97316"}}>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    color: totalOK ? "#22c55e" : "#f97316",
+                  }}
+                >
                   ${money(totalCalculado)} {!totalOK && "(≠ ven_monto)"}
                 </div>
               </div>
             </div>
           </div>
 
-          <h3 style={{marginTop:18, color:"#fff"}}>Detalles de la venta</h3>
+          <h3 style={{ marginTop: 18, color: "#fff" }}>
+            Detalles de la venta
+          </h3>
           <div className="table-wrap">
             <table className="table-dark">
               <thead>
                 <tr>
                   <th>Plato</th>
-                  <th style={{width:110, textAlign:"right"}}>Cant.</th>
-                  <th style={{width:160, textAlign:"right"}}>Precio unitario</th>
-                  <th style={{width:160, textAlign:"right"}}>Subtotal</th>
+                  <th style={{ width: 110, textAlign: "right" }}>Cant.</th>
+                  <th style={{ width: 160, textAlign: "right" }}>
+                    Precio unitario
+                  </th>
+                  <th style={{ width: 160, textAlign: "right" }}>Subtotal</th>
                 </tr>
               </thead>
               <tbody>
                 {detalles.length === 0 && (
-                  <tr><td colSpan="4" style={{textAlign:"center"}}>Sin ítems</td></tr>
+                  <tr>
+                    <td colSpan="4" style={{ textAlign: "center" }}>
+                      Sin ítems
+                    </td>
+                  </tr>
                 )}
                 {detalles.map((d, idx) => {
                   const pid = Number(d.id_plato ?? d.plato ?? d.id ?? 0);
                   const plato = platosCache.get(pid);
-                  const nombre = plato ? readPlatoNombre(plato) : (pid ? `Plato #${pid}` : "-");
+                  const nombre = plato
+                    ? readPlatoNombre(plato)
+                    : pid
+                    ? `Plato #${pid}`
+                    : "-";
 
-                  const cantidad = Number(d.detven_cantidad ?? d.cantidad ?? 0);
-                  const unit = Number(d.detven_precio_uni ?? d.precio_unitario ?? 0);
-                  const sub = Number(d.detven_subtotal ?? d.subtotal ?? unit * cantidad);
+                  const cantidad = Number(
+                    d.detven_cantidad ?? d.cantidad ?? 0
+                  );
+                  const unit = Number(
+                    d.detven_precio_uni ?? d.precio_unitario ?? 0
+                  );
+                  const sub = Number(
+                    d.detven_subtotal ?? d.subtotal ?? unit * cantidad
+                  );
 
                   return (
                     <tr key={idx}>
                       <td>{nombre}</td>
-                      <td style={{textAlign:"right"}}>{cantidad}</td>
-                      <td style={{textAlign:"right"}}>${money(unit)}</td>
-                      <td style={{textAlign:"right"}}>${money(sub)}</td>
+                      <td style={{ textAlign: "right" }}>{cantidad}</td>
+                      <td style={{ textAlign: "right" }}>
+                        ${money(unit)}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        ${money(sub)}
+                      </td>
                     </tr>
                   );
                 })}
@@ -237,8 +340,17 @@ export default function VentaDetalle() {
               {detalles.length > 0 && (
                 <tfoot>
                   <tr>
-                    <td colSpan={3} style={{textAlign:"right", fontWeight:700}}>Total</td>
-                    <td style={{textAlign:"right", fontWeight:700}}>${money(totalCalculado)}</td>
+                    <td
+                      colSpan={3}
+                      style={{ textAlign: "right", fontWeight: 700 }}
+                    >
+                      Total
+                    </td>
+                    <td
+                      style={{ textAlign: "right", fontWeight: 700 }}
+                    >
+                      ${money(totalCalculado)}
+                    </td>
                   </tr>
                 </tfoot>
               )}
@@ -267,3 +379,4 @@ const styles = `
 .btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+

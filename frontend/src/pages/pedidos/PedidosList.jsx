@@ -339,7 +339,7 @@ export default function PedidosList() {
     })();
   }, []);
 
-  // ====== Acciones stock/mesa/estado (SIN CAMBIOS) ======
+  // ====== Acciones stock/mesa/estado ======
 
   const descontarInsumos = async (pedidoId) => {
     try {
@@ -419,7 +419,7 @@ export default function PedidosList() {
     }
   };
 
-  // ====== Agregar Ítem (SIN CAMBIOS) ======
+  // ====== Agregar Ítem ======
   const abrirAgregarItem = (pedido) => {
     if (isTerminal(pedido)) {
       alert("No se pueden agregar ítems a un pedido Finalizado/Cancelado.");
@@ -503,7 +503,7 @@ export default function PedidosList() {
     }
   };
 
-  // ====== Cancelar con dos opciones (SIN CAMBIOS) ======
+  // ====== Cancelar con dos opciones ======
   const abrirCancelar = (pedido) => {
     if (isTerminal(pedido)) return;
     setCancelTarget(pedido);
@@ -757,12 +757,12 @@ export default function PedidosList() {
                             </button>
                           )}
 
-                          {/* Finalizar sólo si NO está finalizado/cancelado */}
-                          {!terminal && (
+                          {/* Finalizar SOLO si está ENTREGADO y no es terminal */}
+                          {!terminal && entregado && (
                             <button
                               onClick={() => {
                                 const ok = window.confirm(
-                                  "El pedido pasará a FINALIZADO (no se descuenta stock). ¿Continuar?"
+                                  "El pedido pasará a FINALIZADO (la venta será generada). ¿Continuar?"
                                 );
                                 if (ok) marcarFinalizado(r);
                               }}
@@ -927,6 +927,7 @@ const styles = `
 .row label { width:180px; text-align:right; color:#d1d5db; }
 select, input { flex:1; background:#0f0f0f; color:#fff; border:1px solid #2a2a2a; border-radius:8px; padding:10px 12px; }
 `;
+
 
 
 

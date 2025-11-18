@@ -208,12 +208,13 @@ export default function PedidoRegistrar() {
       await getEmpleadoActual();
 
       const [mesasArr, clientesArr, estadosArr, tiposArr, platosArr] = await Promise.all([
-        fetchCatalog(["/api/mesas/", "/api/mesa/", "/api/mesas?limit=500"]),
-        fetchCatalog(["/api/clientes/", "/api/cliente/", "/api/clientes?limit=500"]),
-        fetchCatalog(["/api/estado-pedidos/", "/api/estado_pedidos/", "/api/estados-pedido/"]),
-        fetchCatalog(["/api/tipo-pedidos/", "/api/tipo_pedidos/", "/api/tipos-pedido/"]),
-        fetchCatalog(["/api/platos/", "/api/plato/", "/api/platos?limit=1000"]),
+        fetchCatalog(["/api/mesas/", "/api/mesas?limit=500"]),
+        fetchCatalog(["/api/clientes/", "/api/clientes?limit=500"]),
+        fetchCatalog(["/api/estados-pedido/"]),
+        fetchCatalog(["/api/tipos-pedido/"]),
+        fetchCatalog(["/api/platos/", "/api/platos?limit=1000"]),
       ]);
+
       setMesas(mesasArr);   if (!mesasArr.length)   msgs.push("No se pudieron cargar Mesas.");
       setClientes(clientesArr); if (!clientesArr.length) msgs.push("No se pudieron cargar Clientes.");
       setEstados(estadosArr); if (!estadosArr.length) msgs.push("No se pudieron cargar Estados.");
@@ -393,7 +394,14 @@ export default function PedidoRegistrar() {
         id_tipo_pedido: Number(form.id_tipo_pedido),
         ped_descripcion: form.ped_descripcion || "",
         ped_fecha_hora_ini: form.ped_fecha_hora_ini,
+
+        // 👇 ESTO ES LO NUEVO: mandar los ítems al backend para que valide stock
+        detalles: detalles.map((d) => ({
+          id_plato: Number(d.id_plato),
+          detped_cantidad: Number(d.detped_cantidad),
+        })),
       };
+
 
       const { data: created } = await api.post("/api/pedidos/", payload);
       const idPedido = created.id_pedido ?? created.id;
@@ -595,6 +603,7 @@ textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 
 
 

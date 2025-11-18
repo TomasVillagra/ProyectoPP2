@@ -9,23 +9,37 @@ export default function ProveedorRegistrar() {
   const [estados, setEstados] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [form, setForm] = useState({
-    prov_nombre: "", prov_tel: "", prov_correo: "", prov_direccion: "",
-    id_estado_prov: "1", id_categoria_prov: "",
+    prov_nombre: "",
+    prov_tel: "",
+    prov_correo: "",
+    prov_direccion: "",
+    id_estado_prov: "1",
+    id_categoria_prov: "",
   });
   const [errors, setErrors] = useState({});
+
+  // NUEVO: estado para crear categoría
+  const [nuevaCategoria, setNuevaCategoria] = useState("");
+  const [catMsg, setCatMsg] = useState("");
+  const [catLoading, setCatLoading] = useState(false);
 
   useEffect(() => {
     Promise.all([
       api.get("/api/estados-proveedor/"),
       api.get("/api/categorias-proveedor/"),
     ]).then(([eRes, cRes]) => {
-      setEstados(Array.isArray(eRes.data?.results) ? eRes.data.results : eRes.data);
-      setCategorias(Array.isArray(cRes.data?.results) ? cRes.data.results : cRes.data);
+      setEstados(
+        Array.isArray(eRes.data?.results) ? eRes.data.results : eRes.data
+      );
+      setCategorias(
+        Array.isArray(cRes.data?.results) ? cRes.data.results : cRes.data
+      );
     });
   }, []);
 
   const normPhoneDigits = (v) => (v || "").replace(/[^\d]/g, "");
-  const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
+  const isValidEmail = (v) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
   const normalizeName = (s) => (s || "").toLowerCase().replace(/\s+/g, "");
 
   // ⬇️ Misma validate que en EDITAR
@@ -49,7 +63,8 @@ export default function ProveedorRegistrar() {
     if (!values.prov_tel) {
       e.prov_tel = "El teléfono es obligatorio.";
     } else if (!/^\+?\d+$/.test(values.prov_tel.replace(/\s+/g, ""))) {
-      e.prov_tel = "El teléfono solo puede contener números y opcionalmente +.";
+      e.prov_tel =
+        "El teléfono solo puede contener números y opcionalmente +.";
     } else if (telDigits.length < 7 || telDigits.length > 20) {
       e.prov_tel = "El teléfono debe tener entre 7 y 20 dígitos.";
     }
@@ -76,8 +91,63 @@ export default function ProveedorRegistrar() {
     return e;
   };
 
-  const onChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+  const onChange = (e) =>
+    setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
   const onBlur = () => setErrors(validate(form));
+
+  // NUEVO: crear categoría sin repetir
+  const handleCrearCategoria = async () => {
+    setCatMsg("");
+    const nombre = (nuevaCategoria || "").trim();
+
+    if (!nombre) {
+      setCatMsg("Ingresá un nombre para la nueva categoría.");
+      return;
+    }
+
+    // Validar que no se repita (ignorando espacios y mayúsculas)
+    const buscado = normalizeName(nombre);
+    const yaExiste = categorias.some(
+      (c) => normalizeName(c.catprov_nombre) === buscado
+    );
+
+    if (yaExiste) {
+      setCatMsg("Ya existe una categoría con ese nombre.");
+      return;
+    }
+
+    try {
+      setCatLoading(true);
+      const res = await api.post("/api/categorias-proveedor/", {
+        catprov_nombre: nombre,
+      });
+
+      const nueva = res.data;
+      const idNueva =
+        nueva.id_categoria_prov ?? nueva.id ?? nueva.pk ?? null;
+
+      // Agregar a la lista y seleccionar automáticamente
+      setCategorias((prev) => [...prev, nueva]);
+      if (idNueva != null) {
+        setForm((f) => ({
+          ...f,
+          id_categoria_prov: String(idNueva),
+        }));
+      }
+
+      setNuevaCategoria("");
+      setCatMsg("Categoría creada correctamente.");
+    } catch (err) {
+      console.error(err);
+      const apiMsg =
+        err?.response?.data?.catprov_nombre?.[0] ||
+        err?.response?.data?.detail ||
+        "No se pudo crear la categoría.";
+      setCatMsg(apiMsg);
+    } finally {
+      setCatLoading(false);
+    }
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -86,14 +156,25 @@ export default function ProveedorRegistrar() {
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
 
-    // 🔎 Duplicado (ignora mayúsculas y espacios) ANTES del POST
+    // 🔎 Duplicado de proveedor (ignora mayúsculas y espacios) ANTES del POST
     {
       const wanted = normalizeName(form.prov_nombre);
-      const { data } = await api.get(`/api/proveedores/?search=${encodeURIComponent(form.prov_nombre)}`);
-      const list = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
-      const duplicated = list.some(it => normalizeName(it.prov_nombre) === wanted);
+      const { data } = await api.get(
+        `/api/proveedores/?search=${encodeURIComponent(form.prov_nombre)}`
+      );
+      const list = Array.isArray(data?.results)
+        ? data.results
+        : Array.isArray(data)
+        ? data
+        : [];
+      const duplicated = list.some(
+        (it) => normalizeName(it.prov_nombre) === wanted
+      );
       if (duplicated) {
-        setErrors(prev => ({ ...prev, prov_nombre: "Ya existe un proveedor con ese nombre." }));
+        setErrors((prev) => ({
+          ...prev,
+          prov_nombre: "Ya existe un proveedor con ese nombre.",
+        }));
         return;
       }
     }
@@ -102,13 +183,17 @@ export default function ProveedorRegistrar() {
       await api.post("/api/proveedores/", {
         ...form,
         id_estado_prov: Number(form.id_estado_prov),
-        id_categoria_prov: form.id_categoria_prov ? Number(form.id_categoria_prov) : null,
+        id_categoria_prov: form.id_categoria_prov
+          ? Number(form.id_categoria_prov)
+          : null,
       });
       setMsg("Proveedor registrado correctamente ✅");
       setTimeout(() => navigate("/proveedores"), 1100);
     } catch (err) {
       console.error(err);
-      setMsg(err?.response?.data?.detail || "Error al registrar proveedor");
+      setMsg(
+        err?.response?.data?.detail || "Error al registrar proveedor"
+      );
     }
   };
 
@@ -121,57 +206,164 @@ export default function ProveedorRegistrar() {
         <form onSubmit={onSubmit} className="form">
           <div className="form-group">
             <label htmlFor="prov_nombre">Nombre</label>
-            <input id="prov_nombre" name="prov_nombre" value={form.prov_nombre} onChange={onChange} onBlur={onBlur} required />
-            {errors.prov_nombre && <small className="field-error">{errors.prov_nombre}</small>}
+            <input
+              id="prov_nombre"
+              name="prov_nombre"
+              value={form.prov_nombre}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+            />
+            {errors.prov_nombre && (
+              <small className="field-error">{errors.prov_nombre}</small>
+            )}
           </div>
 
           <div className="form-group">
             <label htmlFor="id_categoria_prov">Categoría</label>
-            <select id="id_categoria_prov" name="id_categoria_prov" value={form.id_categoria_prov} onChange={onChange} onBlur={onBlur} required>
+            <select
+              id="id_categoria_prov"
+              name="id_categoria_prov"
+              value={form.id_categoria_prov}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+            >
               <option value="">Elegí una categoría…</option>
               {categorias.map((c) => (
-                <option key={c.id_categoria_prov} value={c.id_categoria_prov}>{c.catprov_nombre}</option>
+                <option
+                  key={c.id_categoria_prov}
+                  value={c.id_categoria_prov}
+                >
+                  {c.catprov_nombre}
+                </option>
               ))}
             </select>
-            {errors.id_categoria_prov && <small className="field-error">{errors.id_categoria_prov}</small>}
+            {errors.id_categoria_prov && (
+              <small className="field-error">
+                {errors.id_categoria_prov}
+              </small>
+            )}
+
+            {/* NUEVO: sección para crear categoría */}
+            <div className="new-cat-wrap">
+              <label className="new-cat-label">
+                O crear nueva categoría
+              </label>
+              <div className="new-cat-row">
+                <input
+                  type="text"
+                  placeholder="Nombre de nueva categoría"
+                  value={nuevaCategoria}
+                  onChange={(e) => setNuevaCategoria(e.target.value)}
+                  disabled={catLoading}
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleCrearCategoria}
+                  disabled={catLoading}
+                >
+                  {catLoading ? "Creando..." : "Agregar categoría"}
+                </button>
+              </div>
+              {catMsg && (
+                <small className="field-info">{catMsg}</small>
+              )}
+            </div>
           </div>
 
           <div className="form-group">
             <label htmlFor="prov_tel">Teléfono </label>
-            <input id="prov_tel" name="prov_tel" value={form.prov_tel} onChange={onChange} onBlur={onBlur} required />
-            {errors.prov_tel && <small className="field-error">{errors.prov_tel}</small>}
+            <input
+              id="prov_tel"
+              name="prov_tel"
+              value={form.prov_tel}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+            />
+            {errors.prov_tel && (
+              <small className="field-error">{errors.prov_tel}</small>
+            )}
           </div>
 
           <div className="form-group">
             <label htmlFor="prov_correo">Correo (Opcional)</label>
-            <input id="prov_correo" name="prov_correo" type="email" value={form.prov_correo} onChange={onChange} onBlur={onBlur} />
-            {errors.prov_correo && <small className="field-error">{errors.prov_correo}</small>}
+            <input
+              id="prov_correo"
+              name="prov_correo"
+              type="email"
+              value={form.prov_correo}
+              onChange={onChange}
+              onBlur={onBlur}
+            />
+            {errors.prov_correo && (
+              <small className="field-error">
+                {errors.prov_correo}
+              </small>
+            )}
           </div>
 
           <div className="form-group span-2">
             <label htmlFor="prov_direccion">Dirección </label>
-            <input id="prov_direccion" name="prov_direccion" value={form.prov_direccion} onChange={onChange} onBlur={onBlur} required />
-            {errors.prov_direccion && <small className="field-error">{errors.prov_direccion}</small>}
+            <input
+              id="prov_direccion"
+              name="prov_direccion"
+              value={form.prov_direccion}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+            />
+            {errors.prov_direccion && (
+              <small className="field-error">
+                {errors.prov_direccion}
+              </small>
+            )}
           </div>
 
           <div className="form-group">
             <label htmlFor="id_estado_prov">Estado</label>
-            <select id="id_estado_prov" name="id_estado_prov" value={form.id_estado_prov} onChange={onChange} onBlur={onBlur} required>
+            <select
+              id="id_estado_prov"
+              name="id_estado_prov"
+              value={form.id_estado_prov}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+            >
               {estados.map((e) => (
-                <option key={e.id_estado_prov} value={e.id_estado_prov}>{e.estprov_nombre}</option>
+                <option
+                  key={e.id_estado_prov}
+                  value={e.id_estado_prov}
+                >
+                  {e.estprov_nombre}
+                </option>
               ))}
             </select>
-            {errors.id_estado_prov && <small className="field-error">{errors.id_estado_prov}</small>}
+            {errors.id_estado_prov && (
+              <small className="field-error">
+                {errors.id_estado_prov}
+              </small>
+            )}
           </div>
 
           <div className="form-actions span-2">
-            <button type="submit" className="btn btn-primary">Registrar Proveedor</button>
-            <button type="button" className="btn btn-secondary" onClick={() => navigate("/proveedores")}>Cancelar</button>
+            <button type="submit" className="btn btn-primary">
+              Registrar Proveedor
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => navigate("/proveedores")}
+            >
+              Cancelar
+            </button>
           </div>
         </form>
       </div>
       <style>{formStyles}</style>
-      <style>{`.field-error{color:#fca5a5;font-size:.85rem}`}</style>
+      <style>{extraStyles}</style>
     </DashboardLayout>
   );
 }
@@ -193,4 +385,21 @@ const formStyles = `
   .btn-secondary { background-color: #3a3a3c; color: #eaeaea; }
   .btn-secondary:hover { background-color: #4a4a4e; }
 `;
+
+const extraStyles = `
+  .field-error { color: #fca5a5; font-size: .85rem; }
+  .field-info { color: #e5e7eb; font-size: .8rem; margin-top: 4px; display: block; }
+  .new-cat-wrap { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .new-cat-label { font-size: 0.85rem; color: #e5e7eb; }
+  .new-cat-row { display: flex; gap: 8px; }
+  .new-cat-row input {
+    flex: 1;
+    background-color: #3a3a3c;
+    color: #fff;
+    border: 1px solid #4a4a4e;
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+`;
+
 

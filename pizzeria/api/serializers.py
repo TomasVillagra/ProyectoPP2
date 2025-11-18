@@ -133,6 +133,57 @@ class ProveedorSerializer(serializers.ModelSerializer):
         except Exception:
             return None
 
+    def validate(self, attrs):
+        """
+        Regla de negocio:
+        - No permitir cambiar el estado de ACTIVO (1) a INACTIVO (2)
+          si el proveedor tiene compras asociadas.
+        """
+        from pizzeria.models import Compras  # ya está importado arriba, pero por seguridad
+
+        instance = self.instance  # None en create, objeto en update
+        if not instance:
+            # En creación no aplicamos la regla
+            return attrs
+
+        nuevo_estado = attrs.get("id_estado_prov")
+        if not nuevo_estado:
+            # Si no se está cambiando el estado, no hay nada que validar
+            return attrs
+
+        # Id actual y destino (tomando en cuenta que DRF te pasa el objeto EstadoProveedores)
+        try:
+            estado_actual_id = getattr(
+                instance.id_estado_prov, "id_estado_prov", None
+            ) or getattr(instance.id_estado_prov, "pk", None)
+        except Exception:
+            estado_actual_id = None
+
+        # Puede venir como instancia o como entero
+        if hasattr(nuevo_estado, "id_estado_prov") or hasattr(nuevo_estado, "pk"):
+            estado_destino_id = getattr(
+                nuevo_estado, "id_estado_prov", None
+            ) or getattr(nuevo_estado, "pk", None)
+        else:
+            # por si por alguna razón llega como entero
+            estado_destino_id = int(nuevo_estado)
+
+        # Asumimos: 1 = Activo, 2 = Inactivo
+        if estado_actual_id == 1 and estado_destino_id == 2:
+            # ¿Tiene compras asociadas este proveedor?
+            if Compras.objects.filter(id_proveedor=instance).exists():
+                raise serializers.ValidationError(
+                    {
+                        "id_estado_prov": (
+                            "No se puede desactivar el proveedor porque tiene "
+                            "compras registradas."
+                        )
+                    }
+                )
+
+        return attrs
+
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Catálogos varios
