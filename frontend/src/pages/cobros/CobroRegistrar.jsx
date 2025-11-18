@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import apiDefault, { api as apiNamed } from "../../api/axios";
 const api = apiNamed || apiDefault;
@@ -14,76 +14,125 @@ const fmtARS = (n) =>
 const clean = (s) => String(s || "").trim().toLowerCase();
 
 export default function CobroRegistrar() {
-  const { id_venta } = useParams(); // viene de /cobros/:id_venta o /cobros/registrar/:id_venta
+  const { id_venta } = useParams(); // ID genérico (venta o compra)
+  const location = useLocation();
   const navigate = useNavigate();
+
+  // Si la ruta es /cobros/registrar/:id → viene de compras
+  const esRutaCompra = location.pathname.includes("/cobros/registrar");
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  const [venta, setVenta] = useState(null);
+  const [registro, setRegistro] = useState(null);   // venta o compra
+  const [tipoDoc, setTipoDoc] = useState(null);     // "venta" | "compra"
   const [metodosPago, setMetodosPago] = useState([]);
   const [cajaEstado, setCajaEstado] = useState(null);
-  const [estadosVenta, setEstadosVenta] = useState([]);
+  const [estadosVenta, setEstadosVenta] = useState([]); // sólo ventas
 
   // Form
   const [idMetodoPago, setIdMetodoPago] = useState("");
   const [observacion, setObservacion] = useState("");
 
-  // carga inicial
+  // ================== CARGA INICIAL ==================
   useEffect(() => {
     let mounted = true;
+
     (async () => {
       try {
         setLoading(true);
 
-        const [ventaRes, metRes, cajaRes] = await Promise.all([
-          api.get(`/api/ventas/${id_venta}/`),
+        // Métodos de pago + estado de caja
+        const [metRes, cajaRes] = await Promise.all([
           api.get(`/api/metodos-pago/`),
           api.get(`/api/caja/estado/`),
         ]);
 
         if (!mounted) return;
 
-        const v = ventaRes?.data ?? null;
         const m = metRes?.data ?? [];
         const c = cajaRes?.data ?? null;
 
-        setVenta(v);
         setMetodosPago(Array.isArray(m) ? m : []);
         setCajaEstado(c);
 
-        // Preselecciona método si ya está en la venta
-        if (v?.id_metodo_pago) {
+        // Detectar si es COMPRA o VENTA según la ruta
+        let tipoDetectado = null;
+        let dataDoc = null;
+
+        if (esRutaCompra) {
+          // 👉 Ruta de compras: sólo intentamos COMPRA
+          try {
+            const compraRes = await api.get(`/api/compras/${id_venta}/`);
+            tipoDetectado = "compra";
+            dataDoc = compraRes.data;
+          } catch (err) {
+            console.error("No se encontró la compra con ese ID:", err);
+            alert(`No se encontró la compra #${id_venta}.`);
+            if (mounted) setLoading(false);
+            return;
+          }
+        } else {
+          // 👉 Ruta de ventas: primero VENTA, opcionalmente fallback a COMPRA
+          try {
+            const ventaRes = await api.get(`/api/ventas/${id_venta}/`);
+            tipoDetectado = "venta";
+            dataDoc = ventaRes.data;
+          } catch {
+            try {
+              const compraRes = await api.get(`/api/compras/${id_venta}/`);
+              tipoDetectado = "compra";
+              dataDoc = compraRes.data;
+            } catch (err2) {
+              console.error("No se encontró venta ni compra con ese ID:", err2);
+              alert(`No se encontró venta ni compra con ID #${id_venta}.`);
+              if (mounted) setLoading(false);
+              return;
+            }
+          }
+        }
+
+        if (!mounted) return;
+
+        setTipoDoc(tipoDetectado);
+        setRegistro(dataDoc);
+
+        // Preseleccionar método si viene en el doc
+        if (dataDoc?.id_metodo_pago) {
           const preId =
-            typeof v.id_metodo_pago === "object"
-              ? v.id_metodo_pago.id_metodo_pago || v.id_metodo_pago.id || ""
-              : v.id_metodo_pago;
+            typeof dataDoc.id_metodo_pago === "object"
+              ? dataDoc.id_metodo_pago.id_metodo_pago ||
+                dataDoc.id_metodo_pago.id ||
+                ""
+              : dataDoc.id_metodo_pago;
           if (preId) setIdMetodoPago(String(preId));
         }
 
-        // Cargar catálogo de estados de venta
-        let estados = [];
-        const candidates = [
-          "/api/estado-ventas/",
-          "/api/estado_ventas/",
-          "/api/estados-venta/",
-          "/api/estadosventa/",
-        ];
-        for (const url of candidates) {
-          try {
-            const res = await api.get(url);
-            const data = res.data;
-            let list = [];
-            if (Array.isArray(data)) list = data;
-            else if (Array.isArray(data?.results)) list = data.results;
-            else if (Array.isArray(data?.data)) list = data.data;
-            if (list.length) {
-              estados = list;
-              break;
-            }
-          } catch {}
+        // Si es venta, cargo catálogo de estados de venta
+        if (tipoDetectado === "venta") {
+          let estados = [];
+          const candidates = [
+            "/api/estado-ventas/",
+            "/api/estado_ventas/",
+            "/api/estados-venta/",
+            "/api/estadosventa/",
+          ];
+          for (const url of candidates) {
+            try {
+              const res = await api.get(url);
+              const data = res.data;
+              let list = [];
+              if (Array.isArray(data)) list = data;
+              else if (Array.isArray(data?.results)) list = data.results;
+              else if (Array.isArray(data?.data)) list = data.data;
+              if (list.length) {
+                estados = list;
+                break;
+              }
+            } catch {}
+          }
+          if (mounted) setEstadosVenta(estados);
         }
-        if (mounted) setEstadosVenta(estados);
       } catch (err) {
         console.error("Error al cargar cobro:", err);
         alert("No se pudo cargar la información del cobro.");
@@ -91,11 +140,13 @@ export default function CobroRegistrar() {
         if (mounted) setLoading(false);
       }
     })();
+
     return () => {
       mounted = false;
     };
-  }, [id_venta]);
+  }, [id_venta, esRutaCompra]);
 
+  // ================== MEMOS BÁSICOS ==================
   const cajaAbierta = useMemo(() => {
     if (!cajaEstado) return false;
     if (typeof cajaEstado.abierta === "boolean") return cajaEstado.abierta;
@@ -104,32 +155,63 @@ export default function CobroRegistrar() {
     return false;
   }, [cajaEstado]);
 
-  const montoVenta = useMemo(() => {
-    if (!venta) return 0;
-    return venta.ven_monto ?? venta.ven_total ?? venta.total ?? 0;
-  }, [venta]);
+  // saldo total de la caja (según tu JSON hoy_saldo)
+  const saldoCaja = useMemo(() => {
+    if (!cajaEstado) return null;
+    const v = Number(
+      cajaEstado.hoy_saldo ??
+        cajaEstado.saldo ??
+        cajaEstado.total ??
+        cajaEstado.hoy_ingresos
+    );
+    return Number.isNaN(v) ? null : v;
+  }, [cajaEstado]);
+
+  const montoDocumento = useMemo(() => {
+    if (!registro) return 0;
+    if (tipoDoc === "compra") {
+      return registro.com_monto ?? 0;
+    }
+    // venta
+    return registro.ven_monto ?? registro.ven_total ?? registro.total ?? 0;
+  }, [registro, tipoDoc]);
 
   const estadoNombre = useMemo(() => {
-    if (!venta) return "";
+    if (!registro) return "";
 
+    if (tipoDoc === "compra") {
+      return (
+        registro.estado_nombre ??
+        registro.estcom_nombre ??
+        registro.estado ??
+        ""
+      );
+    }
+
+    // VENTA: tratar de resolver el nombre de estado
     let nombre =
-      venta.estado_nombre ??
-      venta.estven_nombre ??
-      venta.estado ??
+      registro.estado_nombre ??
+      registro.estven_nombre ??
+      registro.estado ??
       "";
 
-    if (!nombre && typeof venta.id_estado_venta === "object" && venta.id_estado_venta !== null) {
+    if (
+      !nombre &&
+      typeof registro.id_estado_venta === "object" &&
+      registro.id_estado_venta !== null
+    ) {
       nombre =
-        venta.id_estado_venta.estven_nombre ??
-        venta.id_estado_venta.nombre ??
+        registro.id_estado_venta.estven_nombre ??
+        registro.id_estado_venta.nombre ??
         "";
     }
 
-    if (!nombre && venta.id_estado_venta != null && estadosVenta.length > 0) {
+    if (!nombre && registro.id_estado_venta != null && estadosVenta.length > 0) {
       const idValor =
-        typeof venta.id_estado_venta === "object"
-          ? venta.id_estado_venta.id_estado_venta ?? venta.id_estado_venta.id
-          : venta.id_estado_venta;
+        typeof registro.id_estado_venta === "object"
+          ? registro.id_estado_venta.id_estado_venta ??
+            registro.id_estado_venta.id
+          : registro.id_estado_venta;
 
       const found = estadosVenta.find(
         (ev) => String(ev.id_estado_venta ?? ev.id) === String(idValor)
@@ -144,65 +226,56 @@ export default function CobroRegistrar() {
     }
 
     return nombre || "";
-  }, [venta, estadosVenta]);
+  }, [registro, tipoDoc, estadosVenta]);
 
   const metodoPagoActual = useMemo(() => {
-    if (!venta) return "";
-    if (typeof venta.id_metodo_pago === "object" && venta.id_metodo_pago !== null) {
+    if (!registro) return "";
+    if (
+      typeof registro.id_metodo_pago === "object" &&
+      registro.id_metodo_pago !== null
+    ) {
       return (
-        venta.id_metodo_pago.metpag_nombre ||
-        venta.id_metodo_pago.metpago_nombre ||
-        venta.id_metodo_pago.nombre ||
+        registro.id_metodo_pago.metpag_nombre ||
+        registro.id_metodo_pago.metpago_nombre ||
+        registro.id_metodo_pago.nombre ||
         ""
       );
     }
     const found = metodosPago.find(
       (x) =>
         String(x.id_metodo_pago || x.id) ===
-        String(venta?.id_metodo_pago || "")
+        String(registro?.id_metodo_pago || "")
     );
     return (
       found?.metpag_nombre || found?.metpago_nombre || found?.nombre || ""
     );
-  }, [venta, metodosPago]);
+  }, [registro, metodosPago]);
 
-  // Saldo disponible del método de pago seleccionado (si viene desde cajaEstado)
-  const saldoMetodoSeleccionado = useMemo(() => {
-    if (!cajaEstado || !idMetodoPago) return null;
+  // Método de pago SELECCIONADO
+  const metodoPagoSel = useMemo(() => {
+    if (!idMetodoPago) return null;
+    return metodosPago.find(
+      (m) => String(m.id_metodo_pago || m.id) === String(idMetodoPago)
+    );
+  }, [metodosPago, idMetodoPago]);
 
-    const mpIdStr = String(idMetodoPago);
-    const metArr =
-      cajaEstado.metodos ||
-      cajaEstado.metodos_pago ||
-      cajaEstado.saldos_metodos ||
-      [];
+  const esEfectivoSeleccionado = useMemo(() => {
+    if (!metodoPagoSel) return false;
+    const nombre = clean(
+      metodoPagoSel.metpag_nombre ||
+        metodoPagoSel.metpago_nombre ||
+        metodoPagoSel.nombre ||
+        ""
+    );
+    const codigo = clean(metodoPagoSel.codigo || metodoPagoSel.code || "");
+    return (
+      nombre.includes("efectivo") ||
+      codigo.includes("efectivo") ||
+      codigo.includes("cash")
+    );
+  }, [metodoPagoSel]);
 
-    if (!Array.isArray(metArr)) return null;
-
-    const found = metArr.find((m) => {
-      const idMatch = String(
-        m.id_metodo_pago ??
-          m.id ??
-          m.metodo_id ??
-          ""
-      );
-      return idMatch === mpIdStr;
-    });
-
-    if (!found) return null;
-
-    // tratamos de detectar el campo de saldo
-    const candidates = ["saldo", "saldo_actual", "monto", "total", "disponible"];
-    for (const key of candidates) {
-      if (found[key] != null) {
-        const num = Number(found[key]);
-        if (!Number.isNaN(num)) return num;
-      }
-    }
-    return null;
-  }, [cajaEstado, idMetodoPago]);
-
-  // Busca el id_estado_venta para "Cobrado"
+  // Busca el id_estado_venta para "Cobrado/Cobrada/Pagado/Pagada" (sólo ventas)
   const resolveEstadoVentaId = useCallback(
     (targetNames = []) => {
       if (!Array.isArray(estadosVenta) || estadosVenta.length === 0) return null;
@@ -219,14 +292,14 @@ export default function CobroRegistrar() {
     [estadosVenta]
   );
 
-  // Cobrar
+  // ================== COBRAR / PAGAR ==================
   const handleCobrar = useCallback(async () => {
-    if (!venta) {
-      alert("Venta no encontrada.");
+    if (!registro || !tipoDoc) {
+      alert("No se encontró el documento a cobrar/pagar.");
       return;
     }
     if (!cajaAbierta) {
-      alert("La caja está cerrada. Abrila antes de cobrar.");
+      alert("La caja está cerrada. Abrila antes de registrar el movimiento.");
       return;
     }
     if (!idMetodoPago) {
@@ -234,15 +307,26 @@ export default function CobroRegistrar() {
       return;
     }
 
-    // Chequear saldo suficiente del método
+    // Venta ya cobrada/pagada → no dejar cobrar otra vez
+    if (tipoDoc === "venta") {
+      const n = clean(estadoNombre);
+      if (n.includes("cobrad") || n.includes("pagad")) {
+        alert("Esta venta ya está cobrada/pagada, no se puede volver a cobrar.");
+        return;
+      }
+    }
+
+    // Si es COMPRA y método EFECTIVO, no dejar egresar más que lo que hay en caja
     if (
-      saldoMetodoSeleccionado != null &&
-      Number(montoVenta) > Number(saldoMetodoSeleccionado)
+      tipoDoc === "compra" &&
+      esEfectivoSeleccionado &&
+      saldoCaja != null &&
+      Number(montoDocumento) > Number(saldoCaja)
     ) {
       alert(
-        `No hay saldo suficiente en el método de pago seleccionado.\n` +
-          `Disponible: ${fmtARS(saldoMetodoSeleccionado)}\n` +
-          `Requerido: ${fmtARS(montoVenta)}`
+        `No hay EFECTIVO suficiente en la caja para esta compra.\n` +
+          `Efectivo disponible: ${fmtARS(saldoCaja)}\n` +
+          `Egreso solicitado: ${fmtARS(montoDocumento)}`
       );
       return;
     }
@@ -250,69 +334,102 @@ export default function CobroRegistrar() {
     try {
       setSubmitting(true);
 
-      const idVentaNum = Number(venta.id_venta || id_venta);
+      const idNum =
+        tipoDoc === "compra"
+          ? Number(registro.id_compra || id_venta)
+          : Number(registro.id_venta || id_venta);
 
-      // 1) Movimiento de caja: Ingreso (id_tipo_movimiento = 2)
-      await api.post(`/api/movimientos-caja/`, {
-        id_tipo_movimiento: 2, // Ingreso
-        mv_monto: Number(montoVenta),
-        observacion:
-          observacion?.trim() ||
-          `Cobro de venta #${venta.id_venta || id_venta}`,
-        id_metodo_pago: Number(idMetodoPago),
-        id_venta: idVentaNum,
-      });
-
-      // 2) Actualizar método de pago en la venta
-      await api.patch(`/api/ventas/${idVentaNum}/`, {
-        id_metodo_pago: Number(idMetodoPago),
-      });
-
-      // 3) Cambiar estado de la venta a "Cobrado"
-      const estadoCobradoId = resolveEstadoVentaId([
-        "cobrado",
-        "pagada",
-        "pagado",
-      ]);
-      if (estadoCobradoId) {
-        await api.patch(`/api/ventas/${idVentaNum}/`, {
-          id_estado_venta: Number(estadoCobradoId),
+      if (tipoDoc === "venta") {
+        // =============== VENTA: movimiento de INGRESO =================
+        await api.post(`/api/movimientos-caja/`, {
+          id_tipo_movimiento_caja: 2, // Ingreso
+          mv_monto: Number(montoDocumento),
+          mv_descripcion:
+            observacion?.trim() || `Cobro de venta #${registro.id_venta || id_venta}`,
+          id_metodo_pago: Number(idMetodoPago),
+          id_venta: idNum,
         });
-      }
 
-      alert("Cobro registrado correctamente.");
-      navigate(`/ventas/${idVentaNum}`);
+        // Actualizar método de pago en la venta
+        await api.patch(`/api/ventas/${idNum}/`, {
+          id_metodo_pago: Number(idMetodoPago),
+        });
+
+        // Cambiar estado de la venta a Cobrado/Cobrada/Pagado/Pagada
+        const estadoCobradoId = resolveEstadoVentaId([
+          "cobrado",
+          "cobrada",
+          "pagado",
+          "pagada",
+        ]);
+        if (estadoCobradoId) {
+          await api.patch(`/api/ventas/${idNum}/`, {
+            id_estado_venta: Number(estadoCobradoId),
+          });
+        }
+
+        alert("Cobro de venta registrado correctamente.");
+        navigate(`/ventas/${idNum}`);
+      } else {
+        // =============== COMPRA: movimiento de EGRESO =================
+        await api.post(`/api/movimientos-caja/`, {
+          id_tipo_movimiento_caja: 3, // Egreso
+          mv_monto: Number(montoDocumento),
+          mv_descripcion:
+            observacion?.trim() || `Pago de compra #${registro.id_compra || id_venta}`,
+          id_metodo_pago: Number(idMetodoPago),
+          id_compra: idNum,
+        });
+
+        // Marcar compra como pagada (columna com_pagado = 1)
+        await api.patch(`/api/compras/${idNum}/`, {
+          com_pagado: 1,
+        });
+
+        alert("Pago de compra registrado correctamente.");
+        navigate(`/compras`);
+      }
     } catch (err) {
       console.error(err);
       const msg =
         err?.response?.data?.detail ||
         err?.response?.data?.error ||
-        "No se pudo registrar el cobro.";
+        "No se pudo registrar el movimiento.";
       alert(msg);
     } finally {
       setSubmitting(false);
     }
   }, [
-    venta,
+    registro,
+    tipoDoc,
     cajaAbierta,
     idMetodoPago,
-    montoVenta,
+    montoDocumento,
     observacion,
     navigate,
     id_venta,
     resolveEstadoVentaId,
-    saldoMetodoSeleccionado,
+    estadoNombre,
+    esEfectivoSeleccionado,
+    saldoCaja,
   ]);
+
+  // ================== RENDER ==================
+  const tituloDoc = tipoDoc === "compra" ? "compra" : "venta";
+  const idMostrar =
+    tipoDoc === "compra"
+      ? registro?.id_compra || id_venta
+      : registro?.id_venta || id_venta;
 
   return (
     <DashboardLayout>
       {loading ? (
-        <p>Cargando datos de cobranza...</p>
-      ) : !venta ? (
+        <p>Cargando datos de cobro/pago...</p>
+      ) : !registro ? (
         <div className="card-dark">
-          <h3 style={{ marginTop: 0 }}>Cobrar venta</h3>
+          <h3 style={{ marginTop: 0 }}>Cobrar / Pagar</h3>
           <div className="alert-warn">
-            No se encontró la venta #{id_venta}.
+            No se encontró la venta/compra #{id_venta}.
           </div>
           <Link to="/ventas" className="btn btn-secondary">
             Volver a Ventas
@@ -322,7 +439,7 @@ export default function CobroRegistrar() {
         <div className="grid">
           <div className="card-dark">
             <h3 style={{ marginTop: 0 }}>
-              Resumen de la venta #{venta.id_venta || id_venta}
+              Resumen de la {tituloDoc} #{idMostrar}
             </h3>
             <div className="row">
               <div>
@@ -331,7 +448,7 @@ export default function CobroRegistrar() {
               </div>
               <div>
                 <span className="label">Total:</span>{" "}
-                <b>{fmtARS(montoVenta)}</b>
+                <b>{fmtARS(montoDocumento)}</b>
               </div>
               <div>
                 <span className="label">Método actual:</span>{" "}
@@ -343,16 +460,25 @@ export default function CobroRegistrar() {
                   {cajaAbierta ? "Abierta" : "Cerrada"}
                 </span>
               </div>
+              {tipoDoc === "compra" && esEfectivoSeleccionado && saldoCaja != null && (
+                <div>
+                  <span className="label">Efectivo disponible:</span>{" "}
+                  <b>{fmtARS(saldoCaja)}</b>
+                </div>
+              )}
             </div>
             {!cajaAbierta && (
               <div className="alert-info" style={{ marginTop: 10 }}>
-                Para cobrar necesitás abrir la caja en <b>Caja &gt; Panel</b>.
+                Para registrar el movimiento necesitás abrir la caja en{" "}
+                <b>Caja &gt; Panel</b>.
               </div>
             )}
           </div>
 
           <div className="card-dark">
-            <h3 style={{ marginTop: 0 }}>Registrar cobro</h3>
+            <h3 style={{ marginTop: 0 }}>
+              {tipoDoc === "compra" ? "Registrar pago de compra" : "Registrar cobro de venta"}
+            </h3>
 
             <div className="field">
               <label className="label">Método de pago</label>
@@ -378,7 +504,11 @@ export default function CobroRegistrar() {
               <textarea
                 className="input"
                 rows={3}
-                placeholder={`Cobro de venta #${venta.id_venta || id_venta}`}
+                placeholder={
+                  tipoDoc === "compra"
+                    ? `Pago de compra #${idMostrar}`
+                    : `Cobro de venta #${idMostrar}`
+                }
                 value={observacion}
                 onChange={(e) => setObservacion(e.target.value)}
               />
@@ -392,7 +522,7 @@ export default function CobroRegistrar() {
               }}
             >
               <div className="label">
-                Importe a cobrar: <b>{fmtARS(montoVenta)}</b>
+                Importe: <b>{fmtARS(montoDocumento)}</b>
               </div>
               <button
                 className="btn btn-primary"
@@ -400,13 +530,19 @@ export default function CobroRegistrar() {
                 disabled={submitting || !cajaAbierta || !idMetodoPago}
                 title={
                   !cajaAbierta
-                    ? "Abrí la caja para poder cobrar."
+                    ? "Abrí la caja para poder registrar el movimiento."
                     : !idMetodoPago
                     ? "Elegí un método de pago."
                     : undefined
                 }
               >
-                {submitting ? "Cobrando..." : "Cobrar"}
+                {submitting
+                  ? tipoDoc === "compra"
+                    ? "Pagando..."
+                    : "Cobrando..."
+                  : tipoDoc === "compra"
+                  ? "Registrar pago"
+                  : "Cobrar"}
               </button>
             </div>
           </div>
@@ -433,6 +569,11 @@ const styles = `
 .alert-warn { background:#7c2d12; color:#fde68a; padding:8px; border-radius:8px; }
 .alert-info { background:#1e3a8a; color:#bfdbfe; padding:8px; border-radius:8px; }
 `;
+
+
+
+
+
 
 
 

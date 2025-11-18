@@ -185,7 +185,7 @@ export default function ComprasList() {
     }
   };
 
-  /* ===== Recibir (suma stock) ===== */
+  /* ===== Recibir (suma stock usando capacidad) ===== */
   const handleRecibir = async (compra) => {
     const id = compra.id_compra ?? compra.id;
     const estadoActual = lower(compra.estado_nombre ?? "");
@@ -211,12 +211,15 @@ export default function ComprasList() {
 
       for (const r of detalle) {
         const idInsumo = r.id_insumo ?? r.insumo_id ?? r?.id_insumo?.id_insumo;
-        const cant = toNumber(r.detcom_cantidad, 0);
-        if (!idInsumo || !(cant > 0)) continue;
+        const cantFardos = toNumber(r.detcom_cantidad, 0); // cantidad de fardos / unidades compradas
+        if (!idInsumo || !(cantFardos > 0)) continue;
 
         const ins = await api.get(`/api/insumos/${idInsumo}/`);
         const actual = toNumber(ins?.data?.ins_stock_actual, 0);
-        const nuevo = actual + cant; // (si usás capacidad, esto ya lo habías cambiado en otra versión)
+        const capacidad = toNumber(ins?.data?.ins_capacidad, 0) || 1; // capacidad por fardo
+        const incremento = cantFardos * capacidad; // ej: 1 fardo * 6 = 6 unidades
+
+        const nuevo = actual + incremento;
         await api.patch(`/api/insumos/${idInsumo}/`, {
           ins_stock_actual: Number(nuevo),
         });
@@ -227,7 +230,7 @@ export default function ComprasList() {
       });
 
       await refreshOne(id);
-      alert("Compra recibida y stock actualizado.");
+      alert("Compra recibida y stock actualizado según capacidad.");
     } catch (e) {
       console.error(e);
       alert("No se pudo recibir la compra. Ver consola para más detalles.");
@@ -489,6 +492,7 @@ const styles = `
 
 .paginate { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:10px; }
 `;
+
 
 
 

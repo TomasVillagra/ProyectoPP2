@@ -1021,7 +1021,6 @@ class MovimientosCajaViewSet(viewsets.ModelViewSet):
         elif tipo_id == ID_EGRESO:
             # Egreso: sin venta ni método de pago
             data["id_venta"] = None
-            data["id_metodo_pago"] = None
             # mv_monto lo debe mandar el front (> 0)
 
         elif tipo_id == ID_CIERRE:

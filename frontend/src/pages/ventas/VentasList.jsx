@@ -116,6 +116,16 @@ export default function VentasList() {
     return nombre || "-";
   };
 
+  // Devuelve true si la venta ya está cobrada/pagada
+  const esVentaCobrada = (venta) => {
+    const nombre = getEstadoNombre(venta);
+    const n = clean(nombre);
+    // cubrimos variantes: Cobrado, Cobrada, Pagado, Pagada
+    if (n.includes("cobrad")) return true;
+    if (n.includes("pagad")) return true;
+    return false;
+  };
+
   return (
     <DashboardLayout>
       <div
@@ -166,6 +176,7 @@ export default function VentasList() {
                   v.empleado_nombre ?? v.emp_nombre ?? v.id_empleado ?? "-";
                 const total = v.ven_total ?? v.total ?? 0;
                 const estadoNombre = getEstadoNombre(v); // ← siempre nombre (Pendiente, Cobrado, etc.)
+                const yaCobrada = esVentaCobrada(v);
 
                 return (
                   <tr key={id}>
@@ -190,13 +201,15 @@ export default function VentasList() {
                         Ver
                       </Link>
 
-                      {/* Cobrar venta */}
-                      <Link
-                        className="btn btn-primary"
-                        to={`/cobros/${v.id_venta ?? id}`}
-                      >
-                        Cobrar
-                      </Link>
+                      {/* Cobrar venta: SOLO si no está cobrada/pagada */}
+                      {!yaCobrada && (
+                        <Link
+                          className="btn btn-primary"
+                          to={`/cobros/${v.id_venta ?? id}`}
+                        >
+                          Cobrar
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 );
@@ -219,3 +232,5 @@ const styles = `
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
+
