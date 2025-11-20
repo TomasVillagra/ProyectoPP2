@@ -1,14 +1,33 @@
-// src/pages/caja/CajaPanel.jsx
 import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import apiDefault, { api as apiNamed } from "../../api/axios";
 const api = apiNamed || apiDefault;
 
 /* Helpers */
+function normAny(resp) {
+  if (!resp) return [];
+  const data = resp.data ?? resp;
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.results)) return data.results;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+}
+
 const money = (n) => {
   const x = Number(n);
   return Number.isFinite(x) ? x.toFixed(2) : "0.00";
 };
+
+function fmtDate(dt) {
+  if (!dt) return "-";
+  try {
+    const d = new Date(dt);
+    if (isNaN(d.getTime())) return String(dt).replace("T", " ").slice(0, 19);
+    return d.toLocaleString("es-AR");
+  } catch {
+    return String(dt);
+  }
+}
 
 export default function CajaPanel() {
   const [estado, setEstado] = useState(null); // {abierta: bool, ...}
@@ -18,12 +37,30 @@ export default function CajaPanel() {
 
   const [montoInicial, setMontoInicial] = useState("");
 
+  // movimientos de la caja ACTUAL (desde última apertura)
+  const [movs, setMovs] = useState([]);
+  const [movsLoading, setMovsLoading] = useState(false);
+  const [movsMsg, setMovsMsg] = useState("");
+
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+
+  // 🔧 soporta totales_metodo como ARRAY o como OBJETO
   const totalesPorMetodo = useMemo(() => {
     const acc = {};
-    (estado?.totales_metodo || []).forEach((t) => {
+    const tm = estado?.totales_metodo;
+
+    let lista = [];
+    if (Array.isArray(tm)) {
+      lista = tm;
+    } else if (tm && typeof tm === "object") {
+      lista = Object.values(tm);
+    }
+
+    lista.forEach((t) => {
       const nombre =
         t.metpag_nombre || t.metpago_nombre || t.nombre || `Método ${t.id}`;
-      acc[nombre] = Number(t.total || 0);
+      acc[nombre] = Number(t.total || t.saldo || 0);
     });
     return acc;
   }, [estado]);
@@ -53,6 +90,111 @@ export default function CajaPanel() {
 
   // bandera oficial: viene del backend
   const abierta = !!(estado && estado.abierta === true);
+
+  // ▼▼ datos de apertura y efectivo disponible ▼▼
+  const aperturaMonto = Number(
+    estado?.apertura_monto ?? estado?.apertura?.mv_monto ?? 0
+  );
+
+  const efectivoDisponible = Number(estado?.efectivo_disponible ?? 0);
+
+  const aperturaFechaStr =
+    estado?.apertura_fecha || estado?.apertura?.mv_fecha_hora || null;
+
+  const aperturaEmpleado =
+    estado?.apertura_empleado_nombre ||
+    estado?.apertura?.empleado_nombre ||
+    "-";
+
+  const aperturaFechaHora = (() => {
+    if (!aperturaFechaStr) return "-";
+    try {
+      const d = new Date(aperturaFechaStr);
+      if (Number.isNaN(d.getTime())) return String(aperturaFechaStr);
+      return d.toLocaleString("es-AR");
+    } catch {
+      return String(aperturaFechaStr);
+    }
+  })();
+  // ▲▲ datos apertura ▲▲
+
+  // Movimientos SOLO de la caja actual (desde la última apertura)
+  const cargarMovsActual = async (aperturaBase) => {
+    if (!aperturaBase) {
+      setMovs([]);
+      return;
+    }
+    setMovsLoading(true);
+    setMovsMsg("");
+    try {
+      const candidates = ["/api/movimientos-caja/", "/api/movimientos_caja/"];
+      let todos = [];
+      for (const u of candidates) {
+        try {
+          const res = await api.get(u);
+          todos = normAny(res);
+          break;
+        } catch (e) {
+          // intenta siguiente url
+        }
+      }
+      if (!Array.isArray(todos)) todos = [];
+
+      const apDate = new Date(aperturaBase);
+      const tAp = apDate.getTime();
+      const filtrados = todos.filter((m) => {
+        const raw =
+          m.mv_fecha_hora || m.mov_fecha_hora || m.fecha || m.created_at;
+        if (!raw) return false;
+        const d = new Date(raw);
+        const t = d.getTime();
+        if (Number.isNaN(t)) return false;
+        // solo movimientos desde la APERTURA (caja actual)
+        return t >= tAp;
+      });
+
+      filtrados.sort((a, b) => {
+        const da = new Date(
+          a.mv_fecha_hora || a.mov_fecha_hora || a.fecha || a.created_at
+        ).getTime();
+        const db = new Date(
+          b.mv_fecha_hora || b.mov_fecha_hora || b.fecha || b.created_at
+        ).getTime();
+        return da - db; // orden cronológico ascendente
+      });
+
+      setMovs(filtrados);
+      setPage(1);
+    } catch (e) {
+      console.log(
+        "Error cargando movimientos de la caja actual:",
+        e.response?.data || e
+      );
+      setMovs([]);
+      setMovsMsg("No se pudieron cargar los movimientos de la caja actual.");
+    } finally {
+      setMovsLoading(false);
+    }
+  };
+
+  // Cada vez que cambia el estado de la caja o la apertura, recargo los movimientos de ESTA caja
+  useEffect(() => {
+    if (abierta && aperturaFechaStr) {
+      cargarMovsActual(aperturaFechaStr);
+    } else {
+      setMovs([]);
+    }
+  }, [abierta, aperturaFechaStr]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil((movs?.length || 0) / pageSize)
+  );
+
+  const pageData = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return movs.slice(start, start + pageSize);
+  }, [movs, page]);
 
   const abrirCaja = async () => {
     if (loading) return;
@@ -180,13 +322,45 @@ export default function CajaPanel() {
               </div>
             </div>
           ) : (
-            // Si está abierta → solo botón de cerrar caja (sin mostrar totales)
+            // Si está abierta → muestra info de apertura + botón de cerrar
             <div className="card-dark" style={{ marginTop: 12 }}>
               <div className="label" style={{ marginBottom: 8 }}>
                 Caja abierta
               </div>
 
-              {/* Referencia oculta a totalesPorMetodo para no romper nada ni generar warnings */}
+              {/* Datos de la apertura actual */}
+              <div className="card-row" style={{ marginTop: 8 }}>
+                <div>
+                  <div className="label">Fecha / hora de apertura</div>
+                  <div>{aperturaFechaHora}</div>
+                </div>
+
+                <div>
+                  <div className="label">Empleado que abrió</div>
+                  <div>{aperturaEmpleado}</div>
+                </div>
+
+                <div>
+                  <div className="label">Monto de apertura</div>
+                  <div>${money(aperturaMonto)}</div>
+                </div>
+
+                <div>
+                  <div className="label">Efectivo disponible</div>
+                  <div
+                    style={{
+                      fontWeight: 600,
+                      color:
+                        efectivoDisponible >= 0 ? "#22c55e" : "#f97316",
+                    }}
+                  >
+                    {efectivoDisponible >= 0 ? "+" : "-"}$
+                    {money(Math.abs(efectivoDisponible))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Referencia oculta a totalesPorMetodo para no generar warnings */}
               <span style={{ display: "none" }}>
                 {Object.keys(totalesPorMetodo).length}
               </span>
@@ -202,6 +376,134 @@ export default function CajaPanel() {
                   Cerrar caja
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* DataTable de movimientos de la CAJA ACTUAL (desde la apertura) */}
+          {abierta && (
+            <div className="card-dark" style={{ marginTop: 12 }}>
+              <div className="label" style={{ marginBottom: 8 }}>
+                Movimientos de la caja actual (desde la apertura)
+              </div>
+
+              {movsMsg && (
+                <p style={{ color: "#facc15", whiteSpace: "pre-wrap" }}>
+                  {movsMsg}
+                </p>
+              )}
+
+              {movsLoading ? (
+                <p>Cargando movimientos...</p>
+              ) : (
+                <>
+                  <div className="table-wrap">
+                    <table className="table-dark">
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Fecha/Hora</th>
+                          <th>Tipo</th>
+                          <th>Venta</th>
+                          <th>Método pago</th>
+                          <th>Monto</th>
+                          <th>Descripción</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pageData.length === 0 && (
+                          <tr>
+                            <td colSpan="7" style={{ textAlign: "center" }}>
+                              Sin registros en esta caja.
+                            </td>
+                          </tr>
+                        )}
+                        {pageData.map((m) => (
+                          <tr
+                            key={
+                              m.id_movimiento_caja ??
+                              m.id_movimiento ??
+                              m.id
+                            }
+                          >
+                            <td>
+                              {m.id_movimiento_caja ??
+                                m.id_movimiento ??
+                                m.id}
+                            </td>
+                            <td>
+                              {fmtDate(
+                                m.mv_fecha_hora ??
+                                  m.mov_fecha_hora ??
+                                  m.fecha ??
+                                  m.created_at
+                              )}
+                            </td>
+                            <td>
+                              {m.tipo_nombre ??
+                                m.tipmov_nombre ??
+                                m.id_tipo_movimiento_caja}
+                            </td>
+                            <td>{m.id_venta ?? m.venta_id ?? "-"}</td>
+                            <td>
+                              {m.metodo_pago_nombre ??
+                                m.metpag_nombre ??
+                                m.id_metodo_pago ??
+                                "-"}
+                            </td>
+                            <td>
+                              ${money(
+                                m.mv_monto ??
+                                  m.mov_monto ??
+                                  m.monto ??
+                                  0
+                              )}
+                            </td>
+                            <td>
+                              {m.mv_descripcion ??
+                                m.mov_descripcion ??
+                                "-"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      justifyContent: "flex-end",
+                      marginTop: 10,
+                    }}
+                  >
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() =>
+                        setPage((p) => Math.max(1, p - 1))
+                      }
+                    >
+                      ◀
+                    </button>
+                    <div
+                      className="btn btn-secondary"
+                      style={{ cursor: "default" }}
+                    >
+                      Página {page} / {totalPages}
+                    </div>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() =>
+                        setPage((p) =>
+                          Math.min(totalPages, p + 1)
+                        )
+                      }
+                    >
+                      ▶
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </>
@@ -227,6 +529,9 @@ const styles = `
 .btn-primary { background:#2563eb; color:#fff; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
+
+
 
 
 

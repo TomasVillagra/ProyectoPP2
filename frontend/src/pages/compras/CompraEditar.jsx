@@ -106,8 +106,6 @@ export default function CompraEditar() {
   }, [id]);
 
   // ===== Handlers =====
-  // ⚠️ Ya no usamos onChange para los campos de cabecera (están deshabilitados),
-  // pero lo dejamos por si quieres reutilizarlo después para otros campos.
   const onChange = (e) =>
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
@@ -156,6 +154,12 @@ export default function CompraEditar() {
     }
     if (!form.id_proveedor) {
       setMsg("Falta el proveedor.");
+      return;
+    }
+
+    // 👉 NUEVO: la compra no puede quedar sin insumos válidos
+    if (!rows.length || rows.every((r) => !r.id_insumo)) {
+      setMsg("La compra debe tener al menos un insumo.");
       return;
     }
 
@@ -209,7 +213,13 @@ export default function CompraEditar() {
       setTimeout(() => navigate("/compras"), 800);
     } catch (err) {
       console.error(err);
-      setMsg("No se pudo actualizar la compra.");
+      // si el back manda un detail (por stock máximo, etc.), lo mostramos
+      const apiMsg =
+        err?.response?.data?.detail ||
+        (typeof err?.response?.data === "string"
+          ? err.response.data
+          : "No se pudo actualizar la compra.");
+      setMsg(apiMsg);
     }
   };
 
@@ -234,8 +244,8 @@ export default function CompraEditar() {
     <DashboardLayout>
       <h2 style={{ margin: 0, marginBottom: 4 }}>Editar Compra #{id}</h2>
       <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, opacity: 0.9 }}>
-        En esta pantalla solo podés editar <strong>los insumos (cantidad, precio, agregar/quitar renglones)</strong>.
-        Los datos de cabecera (empleado, proveedor, estado, fecha, pagado) no se pueden modificar.
+        En esta pantalla solo podés editar <strong>los insumos (cantidad, agregar/quitar renglones)</strong>.
+        El <strong>precio unitario no se puede modificar</strong> y los datos de cabecera (empleado, proveedor, estado, fecha, pagado) tampoco.
       </p>
       {msg && <p style={{ whiteSpace: "pre-wrap" }}>{msg}</p>}
 
@@ -390,11 +400,10 @@ export default function CompraEditar() {
                         type="text"
                         inputMode="decimal"
                         value={r.detcom_precio_uni}
-                        onChange={(e) =>
-                          setRow(i, "detcom_precio_uni", e.target.value)
-                        }
-                        onKeyDown={blockInvalidDecimal}
+                        readOnly
                         placeholder="0.000"
+                        style={{ opacity: 0.75, cursor: "not-allowed" }}
+                        title="El precio unitario de la compra no se puede modificar."
                       />
                     </td>
                     <td>${calcSubtotal(r).toFixed(2)}</td>
@@ -463,6 +472,7 @@ textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 
 
 

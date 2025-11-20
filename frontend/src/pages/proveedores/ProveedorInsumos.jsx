@@ -103,7 +103,7 @@ export default function ProveedorInsumos() {
   // ---------- NUEVO: Cargar compras y calcular bloqueos ----------
   const refreshComprasBloqueos = useCallback(async () => {
     try {
-      // 1) Traer compras del proveedor
+      // 1) Traer compras SOLO del proveedor actual
       const comprasRes = await api.get(`/api/compras/?id_proveedor=${id}`);
       const compras = Array.isArray(comprasRes.data)
         ? comprasRes.data
@@ -115,48 +115,70 @@ export default function ProveedorInsumos() {
         return;
       }
 
-      // 2) Por cada compra, traer detalles y llenar sets
       const usados = new Set();
       const enProceso = new Set();
+
       await Promise.all(
         compras.map(async (c) => {
+
+          // MUY IMPORTANTE: validar proveedor por seguridad
+          const provCompra =
+            Number(c.id_proveedor) ||
+            Number(c.proveedor_id) ||
+            Number(c.id_proveedor_id);
+
+          if (provCompra !== Number(id)) {
+            // no bloquear si esta compra no pertenece a este proveedor
+            return;
+          }
+
           const idCompra = c.id_compra ?? c.id;
           if (!idCompra) return;
+
           const detRes = await api.get(`/api/detalle-compras/?id_compra=${idCompra}`);
           const detalle = Array.isArray(detRes.data)
             ? detRes.data
             : (detRes.data?.results || detRes.data || []);
 
-          // marcar todos los insumos de esta compra
+          // Agregar insumos usados
           detalle.forEach((d) => {
             const insumoId =
-              Number(d.id_insumo ?? d.insumo_id ?? d?.id_insumo?.id_insumo ?? 0);
+              Number(d.id_insumo) ||
+              Number(d.insumo_id) ||
+              Number(d?.id_insumo?.id_insumo) ||
+              0;
+
             if (insumoId) usados.add(insumoId);
           });
 
-          // si la compra está "En proceso", marcar sus insumos en conjunto especial
-          const estNom =
-            clean(c.estado_nombre ?? c.estcom_nombre ?? c.estado ?? c.id_estado_compra);
-          const esEnProceso = estNom === "en proceso" || estNom === "en_proceso";
-          if (esEnProceso) {
+          // ¿La compra está EN PROCESO?
+          const est = (c.estado_nombre || c.estcom_nombre || "").toLowerCase();
+          const esEnProc = est.includes("proceso");
+
+          if (esEnProc) {
             detalle.forEach((d) => {
               const insumoId =
-                Number(d.id_insumo ?? d.insumo_id ?? d?.id_insumo?.id_insumo ?? 0);
+                Number(d.id_insumo) ||
+                Number(d.insumo_id) ||
+                Number(d?.id_insumo?.id_insumo) ||
+                0;
+
               if (insumoId) enProceso.add(insumoId);
             });
           }
         })
       );
 
-      setInsumosUsadosEnCompras(usados);
-      setInsumosEnProceso(enProceso);
+      setInsumosUsadosEnCompras(usados);   // bloquea quitar
+      setInsumosEnProceso(enProceso);      // bloquea editar precio
+
     } catch (e) {
-      console.error("No se pudieron calcular bloqueos de compras:", e?.response?.data || e?.message);
-      // En caso de error, por seguridad, no bloqueamos nada (o podrías bloquear todo)
+      console.error("Error bloqueos compras proveedor:", e);
       setInsumosUsadosEnCompras(new Set());
       setInsumosEnProceso(new Set());
     }
   }, [id]);
+
 
   // Cargar bloqueos después de cargar relaciones
   useEffect(() => {
@@ -164,8 +186,39 @@ export default function ProveedorInsumos() {
   }, [refreshComprasBloqueos, relaciones]);
 
   const vinculadosIds = new Set((relaciones || []).map((r) => Number(r.id_insumo)));
+
+  // === NUEVO: solo insumos ACTIVO en el combo ===
+  const isInsumoActivo = (i) => {
+    const nombreEstado = String(
+      i.estado_nombre ??
+      i.estins_nombre ??
+      i.estado ??
+      i.ins_estado ??
+      ""
+    ).toLowerCase();
+
+    if (nombreEstado) {
+      // si viene "Activo", "ACTIVO", etc.
+      return nombreEstado.includes("activo");
+    }
+
+    const idEstado = Number(
+      i.id_estado_insumo ??
+      i.estado_insumo_id ??
+      i.id_estado ??
+      0
+    );
+    if (idEstado) {
+      // asumiendo 1 = Activo
+      return idEstado === 1;
+    }
+
+    // si no tenemos info del estado, por no romper, lo dejamos pasar
+    return true;
+  };
+
   const insumosDisponibles = (insumosAll || []).filter(
-    (i) => !vinculadosIds.has(Number(i.id_insumo))
+    (i) => !vinculadosIds.has(Number(i.id_insumo)) && isInsumoActivo(i)
   );
 
   // filtro del buscador (nombre, unidad, código o id)
@@ -192,6 +245,7 @@ export default function ProveedorInsumos() {
 
   // helpers
   const getRelPk = (r) => r.id_prov_x_ins || r.id_proveedor_insumo || r.id || r.pk;
+
   const isValidPrice = (val) => {
     if (val === "" || val === null || typeof val === "undefined") return false;
     const num = Number(String(val).replace(",", "."));
@@ -201,10 +255,20 @@ export default function ProveedorInsumos() {
     const parts = String(val).replace(",", ".").split(".");
     return parts.length === 1 || (parts[1]?.length ?? 0) <= 3;
   };
+
   const toPriceStr = (val) => {
     const num = Number(String(val).replace(",", "."));
     if (Number.isNaN(num)) return null;
     return num.toFixed(3); // Decimal(12,3)
+  };
+
+  // === NUEVO: mínimo de precio > 100 ===
+  const MIN_PRICE = 100;
+
+  const isPriceAtLeastMin = (val) => {
+    const num = Number(String(val).replace(",", "."));
+    if (Number.isNaN(num)) return false;
+    return num > MIN_PRICE;
   };
 
   const refreshRel = async () => {
@@ -218,8 +282,8 @@ export default function ProveedorInsumos() {
       setMsg("Elegí un insumo para vincular.");
       return;
     }
-    if (!isValidPrice(priceInput)) {
-      setMsg("Ingresá un precio válido (≥ 0, hasta 3 decimales).");
+    if (!isValidPrice(priceInput) || !isPriceAtLeastMin(priceInput)) {
+      setMsg("Ingresá un precio válido (> 100, hasta 3 decimales).");
       priceRef.current?.focus();
       return;
     }
@@ -291,7 +355,7 @@ export default function ProveedorInsumos() {
         setTimeout(() => priceRef.current?.focus(), 0);
       } else if (!open) {
         // si la lista está cerrada y ya hay insumo seleccionado, si el precio es válido recién vincula
-        if (selInsumo && isValidPrice(priceInput)) {
+        if (selInsumo && isValidPrice(priceInput) && isPriceAtLeastMin(priceInput)) {
           handleVincular();
         } else {
           priceRef.current?.focus();
@@ -387,11 +451,15 @@ export default function ProveedorInsumos() {
               placeholder="Precio (ej. 123.450)"
               value={priceInput}
               onChange={(e) => setPriceInput(e.target.value)}
-              title="Precio unitario (obligatorio)"
+              title="Precio unitario (> 100, obligatorio)"
             />
             <button
               className="btn btn-primary"
-              disabled={!selInsumo || !isValidPrice(priceInput)}
+              disabled={
+                !selInsumo ||
+                !isValidPrice(priceInput) ||
+                !isPriceAtLeastMin(priceInput)
+              }
               onClick={handleVincular}
               title="Vincular insumo seleccionado con precio"
             >
@@ -461,7 +529,7 @@ export default function ProveedorInsumos() {
         </div>
 
         <small className="muted">
-          Elegí un insumo, cargá el <strong>precio</strong> y tocá <strong>Vincular</strong>. Con <strong>↑/↓</strong> navegás y con <strong>Enter</strong> seleccionás.
+          Elegí un insumo, cargá el <strong>precio</strong> (mayor a 100) y tocá <strong>Vincular</strong>. Con <strong>↑/↓</strong> navegás y con <strong>Enter</strong> seleccionás.
         </small>
       </div>
 
@@ -504,8 +572,6 @@ export default function ProveedorInsumos() {
                     }
                   </td>
 
-
-
                   {/* Precio (con edición en línea, bloquea guardar si hay compras "En proceso") */}
                   <td>
                     {isEditing ? (
@@ -518,14 +584,25 @@ export default function ProveedorInsumos() {
                           value={editingPrice}
                           onChange={(e) => setEditingPrice(e.target.value)}
                           disabled={bloqueaEditar}
-                          title={bloqueaEditar ? "No se puede editar: hay compras en proceso con este insumo." : "Ingresá el nuevo precio"}
+                          title={bloqueaEditar
+                            ? "No se puede editar: hay compras en proceso con este insumo."
+                            : "Ingresá el nuevo precio"
+                          }
                         />
                         <button
                           className="btn btn-primary btn-xs"
-                          disabled={!isValidPrice(editingPrice) || bloqueaEditar}
+                          disabled={
+                            !isValidPrice(editingPrice) ||
+                            !isPriceAtLeastMin(editingPrice) ||
+                            bloqueaEditar
+                          }
                           onClick={async () => {
                             if (bloqueaEditar) {
                               setMsg("No se puede editar el precio: este insumo está en compras 'En proceso'.");
+                              return;
+                            }
+                            if (!isPriceAtLeastMin(editingPrice)) {
+                              setMsg("El precio debe ser mayor a 100.");
                               return;
                             }
                             try {
@@ -563,14 +640,11 @@ export default function ProveedorInsumos() {
                   </td>
 
                   <td className="actions-cell">
-                    {!isEditing && (
+                    {/* Editar precio: solo si NO está bloqueado */}
+                    {!isEditing && !bloqueaEditar && (
                       <button
                         className="btn btn-secondary"
                         onClick={() => {
-                          if (bloqueaEditar) {
-                            setMsg("No se puede editar el precio: este insumo está en compras 'En proceso'.");
-                            return;
-                          }
                           setEditingRow(pk);
                           setEditingPrice(
                             (r.precio_unitario ?? "") === "" || r.precio_unitario === null
@@ -578,27 +652,24 @@ export default function ProveedorInsumos() {
                               : Number(r.precio_unitario).toFixed(3)
                           );
                         }}
-                        disabled={bloqueaEditar}
-                        title={bloqueaEditar ? "No se puede editar: hay compras 'En proceso' con este insumo." : "Editar precio"}
+                        title="Editar precio"
                       >
                         Editar precio
                       </button>
                     )}
 
-                    <button
-                      className="btn btn-danger"
-                      onClick={() => {
-                        if (bloqueaQuitar) {
-                          setMsg("No se puede quitar el insumo: está asociado a una o más compras de este proveedor.");
-                          return;
-                        }
-                        handleQuitar(r);
-                      }}
-                      disabled={bloqueaQuitar}
-                      title={bloqueaQuitar ? "No se puede quitar: el insumo figura en compras del proveedor." : "Quitar"}
-                    >
-                      Quitar
-                    </button>
+                    {/* Quitar: solo si NO está bloqueado (si ya está en compras, el botón desaparece) */}
+                    {!bloqueaQuitar && (
+                      <button
+                        className="btn btn-danger"
+                        onClick={() => {
+                          handleQuitar(r);
+                        }}
+                        title="Quitar"
+                      >
+                        Quitar
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
@@ -676,6 +747,7 @@ const styles = `
 .edit-price-wrap { display:flex; align-items:center; gap:8px; }
 .btn-xs { padding:6px 10px; font-size:.85rem; }
 `;
+
 
 
 

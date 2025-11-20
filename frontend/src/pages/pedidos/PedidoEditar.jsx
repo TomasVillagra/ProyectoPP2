@@ -57,7 +57,7 @@ function toInputDateTime(val) {
   } catch { return ""; }
 }
 
-/* ===== recetas/platos/insumos para validación ===== */
+/* ===== recetas/platos/insumos para validación (misma lógica que registrar) ===== */
 async function fetchTodasLasRecetas() {
   const candidates = ["/api/recetas/","/api/receta/","/api/recetas?limit=1000","/api/recetas/list/"];
   for (const url of candidates) {
@@ -123,35 +123,200 @@ async function fetchInsumo(insumoId) {
   }
   return null;
 }
+
+/* ===== reservas de stock por pedidos pendientes (MISMA LÓGICA QUE REGISTRAR) ===== */
+function isPedidoAbierto(p) {
+  const nombre = (p.estado_nombre ?? p.estped_nombre ?? p.estado ?? "")
+    .toString()
+    .toLowerCase();
+  if (!nombre) return true;
+  if (nombre.includes("cancel") || nombre.includes("entreg")) return false;
+  return true;
+}
+
+async function fetchPedidosAbiertos() {
+  const urls = ["/api/pedidos/", "/api/pedido/"];
+  for (const u of urls) {
+    try {
+      const res = await api.get(u);
+      const list = normalize(res);
+      if (Array.isArray(list)) {
+        return list.filter(isPedidoAbierto);
+      }
+    } catch {}
+  }
+  return [];
+}
+
+async function fetchDetallesPedido(pedidoId) {
+  const urls = [
+    `/api/detalle-pedidos/?id_pedido=${pedidoId}`,
+    `/api/detalle_pedidos/?id_pedido=${pedidoId}`,
+    `/api/pedidos/${pedidoId}/detalles/`,
+  ];
+  for (const u of urls) {
+    try {
+      const res = await api.get(u);
+      const list = normalize(res);
+      if (Array.isArray(list)) return list;
+    } catch {}
+  }
+  return [];
+}
+
+/**
+ * Valida un ítem igual que en PedidoRegistrar:
+ * 1) Usa stock del PLATO.
+ * 2) Si no alcanza, usa INSUMOS de la receta.
+ * 3) Considera pedidos ABIERTOS (reservas).
+ *
+ * (Ahora esta lógica está en el back; acá la dejamos por si la necesitás en otra parte)
+ */
 async function validarStockItem({ id_plato, cantidad }) {
   const platoId = Number(id_plato);
-  const cant = Number(cantidad);
-  if (!platoId || !cant) return null;
+  const cantNueva = Number(cantidad);
+  if (!platoId || !cantNueva) return null;
 
   const plato = await fetchPlato(platoId);
-  if (plato) {
-    const st = readPlatoStockField(plato);
-    if (st >= cant) return null;
-  }
   const receta = await fetchRecetaDePlato(platoId);
-  if (!receta) return { platoId, motivo: "Sin stock del plato y sin receta definida.", faltantes: [] };
 
+  if (!plato && !receta) {
+    return {
+      platoId,
+      motivo: "No se encontró stock ni receta para este plato.",
+      faltantes: [],
+    };
+  }
+
+  // ===== CASO SIN RECETA: sólo platos =====
+  if (!receta) {
+    const pedidosAbiertos = await fetchPedidosAbiertos();
+    let capPlato = readPlatoStockField(plato);
+
+    for (const ped of pedidosAbiertos) {
+      const pid = ped.id_pedido ?? ped.id;
+      if (!pid) continue;
+      const dets = await fetchDetallesPedido(pid);
+      for (const det of dets) {
+        const detPlatoId = Number(det.id_plato ?? det.plato ?? det.plato_id ?? 0);
+        if (detPlatoId !== platoId) continue;
+        const q = getNumber(det.detped_cantidad ?? det.cantidad ?? 0);
+        capPlato -= q;
+      }
+    }
+
+    if (capPlato >= cantNueva) return null;
+
+    return {
+      platoId,
+      motivo: "Stock insuficiente del plato (sin receta definida).",
+      faltantes: [],
+    };
+  }
+
+  // ===== CASO CON RECETA: plato + insumos =====
   const recetaId = receta.id_receta ?? receta.id ?? receta.receta_id ?? receta.rec_id ?? null;
-  const dets = recetaId ? await fetchDetallesReceta(recetaId) : [];
-  const faltantes = [];
-  for (const det of dets) {
-    const insumoId = Number(det.id_insumo ?? det.insumo ?? det.id ?? det.insumo_id ?? 0);
+  const detsReceta = recetaId ? await fetchDetallesReceta(recetaId) : [];
+  if (!detsReceta.length) {
+    const pedidosAbiertos = await fetchPedidosAbiertos();
+    let capPlato = readPlatoStockField(plato);
+
+    for (const ped of pedidosAbiertos) {
+      const pid = ped.id_pedido ?? ped.id;
+      if (!pid) continue;
+      const dets = await fetchDetallesPedido(pid);
+      for (const det of dets) {
+        const detPlatoId = Number(det.id_plato ?? det.plato ?? det.plato_id ?? 0);
+        if (detPlatoId !== platoId) continue;
+        const q = getNumber(det.detped_cantidad ?? det.cantidad ?? 0);
+        capPlato -= q;
+      }
+    }
+
+    if (capPlato >= cantNueva) return null;
+    return {
+      platoId,
+      motivo: "Stock insuficiente del plato (receta sin insumos).",
+      faltantes: [],
+    };
+  }
+
+  let capPlato = readPlatoStockField(plato);
+  const capInsumos = {};
+  const insumoInfo = {};
+
+  for (const det of detsReceta) {
+    const insumoId = Number(det.id_insumo ?? det.insumo ?? det.insumo_id ?? det.id ?? 0);
     if (!insumoId) continue;
-    const porPlato = readRecetaCantPorPlato(det);
-    const requerido = porPlato * cant;
-    const ins = await fetchInsumo(insumoId);
-    const disp = readInsumoStockField(ins);
-    if (disp < requerido) {
-      const nombre = ins?.ins_nombre ?? ins?.nombre ?? `Insumo #${insumoId}`;
-      faltantes.push({ nombre, requerido, disponible: disp });
+    if (!(insumoId in capInsumos)) {
+      const ins = await fetchInsumo(insumoId);
+      insumoInfo[insumoId] = ins;
+      capInsumos[insumoId] = readInsumoStockField(ins);
     }
   }
-  return faltantes.length ? { platoId, motivo: "Faltan insumos.", faltantes } : null;
+
+  function consumirCantidad(cant, recolectarFaltantes) {
+    let restante = cant;
+
+    const usarPlato = Math.min(capPlato, restante);
+    capPlato -= usarPlato;
+    restante -= usarPlato;
+
+    if (restante <= 0) return null;
+
+    const faltantes = [];
+    for (const det of detsReceta) {
+      const insumoId = Number(det.id_insumo ?? det.insumo ?? det.insumo_id ?? det.id ?? 0);
+      if (!insumoId) continue;
+      const porPlato = readRecetaCantPorPlato(det);
+      const req = restante * porPlato;
+      const disp = capInsumos[insumoId] ?? 0;
+      if (disp < req) {
+        if (recolectarFaltantes) {
+          const ins = insumoInfo[insumoId];
+          const nombre = ins?.ins_nombre ?? ins?.nombre ?? `Insumo #${insumoId}`;
+          faltantes.push({ nombre, requerido: req, disponible: disp });
+        } else {
+          return [{ nombre: `Insumo #${insumoId}`, requerido: req, disponible: capInsumos[insumoId] ?? 0 }];
+        }
+      }
+    }
+
+    if (faltantes.length) return faltantes;
+
+    for (const det of detsReceta) {
+      const insumoId = Number(det.id_insumo ?? det.insumo ?? det.insumo_id ?? det.id ?? 0);
+      if (!insumoId) continue;
+      const porPlato = readRecetaCantPorPlato(det);
+      const req = restante * porPlato;
+      capInsumos[insumoId] = (capInsumos[insumoId] ?? 0) - req;
+    }
+
+    return null;
+  }
+
+  const pedidosAbiertos = await fetchPedidosAbiertos();
+  for (const ped of pedidosAbiertos) {
+    const pid = ped.id_pedido ?? ped.id;
+    if (!pid) continue;
+    const dets = await fetchDetallesPedido(pid);
+    for (const det of dets) {
+      const detPlatoId = Number(det.id_plato ?? det.plato ?? det.plato_id ?? 0);
+      if (detPlatoId !== platoId) continue;
+      const q = getNumber(det.detped_cantidad ?? det.cantidad ?? 0);
+      if (!q) continue;
+      consumirCantidad(q, false);
+    }
+  }
+
+  const faltasNuevo = consumirCantidad(cantNueva, true);
+  if (!faltasNuevo || !faltasNuevo.length) return null;
+
+  return {
+    platoId,
+    motivo: "Stock insuficiente (plato + insumos) considerando pedidos abiertos.",
+    faltantes: faltasNuevo,
+  };
 }
 
 /* ===== componente ===== */
@@ -187,7 +352,6 @@ export default function PedidoEditar() {
   );
   const isEntregado = estadoNombreActual.toLowerCase() === "entregado";
   const isEnProceso = estadoNombreActual.toLowerCase() === "en proceso";
-
 
   /* detectar “Para llevar” por id seleccionado */
   const isParaLlevarById = (idTipo) => {
@@ -227,7 +391,6 @@ export default function PedidoEditar() {
       const estMesaArr = await fetchCatalog(["/api/estados-mesa/", "/api/estado-mesas/"]);
       setEstadosMesa(estMesaArr || []);
 
-      // cargar pedido
       const pedRes = await api.get(`/api/pedidos/${id}/`);
       const ped = pedRes.data;
       await getEmpleadoActual();
@@ -249,7 +412,6 @@ export default function PedidoEditar() {
         ped_fecha_hora_ini: toInputDateTime(ped.ped_fecha_hora_ini) || "",
       }));
 
-      // detalles
       let dets = ped.detalles;
       if (!Array.isArray(dets)) {
         const detRes = await api.get(`/api/detalle-pedidos/?id_pedido=${id}`);
@@ -259,11 +421,10 @@ export default function PedidoEditar() {
         id_plato: String(d.id_plato ?? d.plato ?? d.id ?? ""),
         detped_cantidad: String(d.detped_cantidad ?? d.cantidad ?? ""),
         _id_det: d.id_detalle_pedido ?? d.id ?? undefined,
-        _min_cant: Number(d.detped_cantidad ?? d.cantidad ?? 0),
+        _min_cant: Number(d.detped_cantidad ?? d.cantidad ?? 0), // cantidad original
       }));
       setDetalles(rows.length ? rows : [{ id_plato: "", detped_cantidad: "" }]);
 
-      // platos con receta
       const recetas = await fetchTodasLasRecetas();
       const ids = new Set();
       recetas.forEach((r) => { const idp = pickIdPlatoFromReceta(r); if (idp) ids.add(Number(idp)); });
@@ -289,7 +450,6 @@ export default function PedidoEditar() {
   const onChange = (e) => {
     const { name, value } = e.target;
 
-    // si cambia el tipo a “para llevar”, limpiar mesa y deshabilitar
     if (name === "id_tipo_pedido") {
       const v = sanitizeInt(value);
       const willBeParaLlevar = (() => {
@@ -315,12 +475,13 @@ export default function PedidoEditar() {
     const rows = [...detalles];
     let newVal = name === "detped_cantidad" ? sanitizeInt(value) : value;
 
+    // En entregado, no permitir bajar la cantidad original
     if (name === "detped_cantidad" && isEntregado) {
       const prevRow = rows[idx];
       const min = Number(prevRow._min_cant ?? prevRow.detped_cantidad ?? 0);
       const numeric = Number(newVal || 0);
       if (prevRow._id_det && numeric < min) {
-        newVal = String(min); // no dejar bajar cantidad de detalles existentes
+        newVal = String(min);
       }
     }
 
@@ -374,25 +535,40 @@ export default function PedidoEditar() {
     setRowErrors(detErrs);
     if (Object.keys(detErrs).length) return;
 
-    // Validación de stock (igual que registrar)
-    const faltas = [];
-    for (const row of detalles) {
-      const err = await validarStockItem({ id_plato: row.id_plato, cantidad: row.detped_cantidad });
-      if (err) {
-        const plato = platos.find((pp) => getPlatoId(pp) === Number(err.platoId));
-        const nombrePlato = plato?.plt_nombre ?? plato?.nombre ?? `Plato #${err.platoId}`;
-        const lines = [`• ${nombrePlato}: ${err.motivo}`];
-        if (err.faltantes?.length) {
-          err.faltantes.forEach((f) => lines.push(`   - ${f.nombre}: requiere ${f.requerido}, disponible ${f.disponible}`));
-        }
-        faltas.push(...lines);
+    // 1) VALIDAR STOCK EN EL BACK (misma lógica que registrar, pero para editar)
+    try {
+      const validarPayload = {
+        id_mesa: isParaLlevar ? null : (form.id_mesa ? Number(form.id_mesa) : null),
+        id_empleado: form.id_empleado ? Number(form.id_empleado) : null,
+        id_cliente: form.id_cliente ? Number(form.id_cliente) : null,
+        id_estado_pedido: Number(form.id_estado_pedido),
+        id_tipo_pedido: Number(form.id_tipo_pedido),
+        ped_descripcion: form.ped_descripcion || "",
+        ped_fecha_hora_ini: form.ped_fecha_hora_ini,
+        detalles: detalles.map((d) => ({
+          id_plato: Number(d.id_plato),
+          detped_cantidad: Number(d.detped_cantidad),
+          _id_det: d._id_det ?? null,
+          _min_cant: Number(d._min_cant || 0),
+        })),
+      };
+
+      await api.post(`/api/pedidos/${id}/validar_stock_editar/`, validarPayload);
+      // Si llega hasta acá, el stock alcanza.
+    } catch (err) {
+      const resp = err?.response;
+      if (resp?.data?.detail) {
+        // Mensaje corto del back, por ejemplo:
+        // "Stock insuficiente: faltan 0,2 kg de Lechuga."
+        setMsg(resp.data.detail);
+      } else {
+        const apiMsg = resp?.data ? JSON.stringify(resp.data, null, 2) : "Error al validar stock";
+        setMsg(`No se pudo validar el stock:\n${apiMsg}`);
       }
-    }
-    if (faltas.length) {
-      setMsg("Stock insuficiente para guardar los cambios:\n" + faltas.join("\n"));
       return;
     }
 
+    // 2) SI EL STOCK ES OK, ACTUALIZAMOS EL PEDIDO Y SUS DETALLES COMO SIEMPRE
     try {
       await api.put(`/api/pedidos/${id}/`, {
         id_mesa: isParaLlevar ? null : (form.id_mesa ? Number(form.id_mesa) : null),
@@ -404,17 +580,23 @@ export default function PedidoEditar() {
         ped_fecha_hora_ini: form.ped_fecha_hora_ini,
       });
 
-      // reemplazar detalles
+      // Reemplazar detalles
       const existing = await api.get(`/api/detalle-pedidos/?id_pedido=${id}`);
       const rows = normalize(existing);
-      await Promise.all(rows.map((r) => api.delete(`/api/detalle-pedidos/${r.id_detalle_pedido || r.id}/`)));
-      await Promise.all(detalles.map((d) =>
-        api.post(`/api/detalle-pedidos/`, {
-          id_pedido: Number(id),
-          id_plato: Number(d.id_plato),
-          detped_cantidad: Number(d.detped_cantidad),
-        })
-      ));
+      await Promise.all(
+        rows.map((r) =>
+          api.delete(`/api/detalle-pedidos/${r.id_detalle_pedido || r.id}/`)
+        )
+      );
+      await Promise.all(
+        detalles.map((d) =>
+          api.post(`/api/detalle-pedidos/`, {
+            id_pedido: Number(id),
+            id_plato: Number(d.id_plato),
+            detped_cantidad: Number(d.detped_cantidad),
+          })
+        )
+      );
 
       // estado de mesa según estado del pedido (solo si NO es para llevar y hay mesa)
       try {
@@ -588,7 +770,6 @@ export default function PedidoEditar() {
               {detalles.map((row, idx) => {
                 const e = rowErrors[idx] || {};
 
-                // Platos ya usados en OTROS renglones
                 const usados = new Set(
                   detalles
                     .map((d, i2) => (i2 === idx ? null : Number(d.id_plato)))
@@ -597,7 +778,7 @@ export default function PedidoEditar() {
                 const opciones = platosFiltrados.filter((p) => {
                   const idp = getPlatoId(p);
                   if (!idp) return false;
-                  if (Number(row.id_plato) === idp) return true; // mantener el que ya está seleccionado
+                  if (Number(row.id_plato) === idp) return true;
                   return !usados.has(idp);
                 });
 
@@ -619,15 +800,31 @@ export default function PedidoEditar() {
                       {e.id_plato && <small className="err-inline">{e.id_plato}</small>}
                     </td>
                     <td>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={row.detped_cantidad}
-                        onChange={(ev) => onRowChange(idx, "detped_cantidad", ev.target.value)}
-                        onKeyDown={blockInvalidInt}
-                        placeholder="0"
-                        disabled={isTerminal}
-                      />
+                      {/* En ENTREGADO: no tocar el input de los detalles originales, solo sumar con el botón */}
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={row.detped_cantidad}
+                          onChange={(ev) => onRowChange(idx, "detped_cantidad", ev.target.value)}
+                          onKeyDown={blockInvalidInt}
+                          placeholder="0"
+                          disabled={isTerminal || (isEntregado && esDetalleOriginal)}
+                        />
+                        {isEntregado && esDetalleOriginal && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={() => {
+                              const actual = Number(row.detped_cantidad || 0);
+                              const nueva = actual + 1;
+                              onRowChange(idx, "detped_cantidad", String(nueva));
+                            }}
+                          >
+                            +1
+                          </button>
+                        )}
+                      </div>
                       {e.detped_cantidad && <small className="err-inline">{e.detped_cantidad}</small>}
                     </td>
                     <td style={{ textAlign: "right" }}>
@@ -697,6 +894,11 @@ textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
+
+
+
+
 
 
 

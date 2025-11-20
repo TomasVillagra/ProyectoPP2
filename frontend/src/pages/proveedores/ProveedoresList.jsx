@@ -12,6 +12,10 @@ export default function ProveedoresList() {
   const [alert, setAlert] = useState({ isOpen: false, message: "" });
   const [search, setSearch] = useState("");
 
+  // nuevo: categorías para filtro
+  const [categorias, setCategorias] = useState([]);
+  const [categoriaFiltro, setCategoriaFiltro] = useState("");
+
   // paginación
   const [page, setPage] = useState(1);
   const rowsPerPage = 10;
@@ -21,12 +25,24 @@ export default function ProveedoresList() {
   }, []);
 
   const cargar = () => {
+    // Proveedores
     api.get("/api/proveedores/").then((res) => {
       const data = Array.isArray(res.data?.results) ? res.data.results : res.data;
       const activos = (data || []).filter((r) => Number(r?.id_estado_prov) === 1);
       setRows(activos);
       setPage(1); // resetear a la primera página al recargar
     });
+
+    // Categorías de proveedor (para el filtro)
+    api
+      .get("/api/categorias-proveedor/")
+      .then((res) => {
+        const data = Array.isArray(res.data?.results) ? res.data.results : res.data;
+        setCategorias(data || []);
+      })
+      .catch((err) => {
+        console.error("Error cargando categorías de proveedor:", err);
+      });
   };
 
   const handleToggleEstado = (prov) => {
@@ -71,19 +87,26 @@ export default function ProveedoresList() {
 
   const filteredRows = useMemo(
     () =>
-      rows.filter(
-        (r) =>
+      rows.filter((r) => {
+        // filtro por texto
+        const matchesText =
           norm(r.prov_nombre).includes(norm(search)) ||
           norm(r.prov_correo).includes(norm(search)) ||
-          norm(r.prov_tel).includes(norm(search))
-      ),
-    [rows, search]
+          norm(r.prov_tel).includes(norm(search));
+
+        // filtro por categoría (si hay algo seleccionado)
+        const matchesCategoria =
+          !categoriaFiltro || String(r.id_categoria_prov) === String(categoriaFiltro);
+
+        return matchesText && matchesCategoria;
+      }),
+    [rows, search, categoriaFiltro]
   );
 
-  // Resetear a página 1 cuando cambia la búsqueda o el total
+  // Resetear a página 1 cuando cambia la búsqueda, la categoría o el total
   useEffect(() => {
     setPage(1);
-  }, [search, rows.length]);
+  }, [search, categoriaFiltro, rows.length]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / rowsPerPage));
   const startIndex = (page - 1) * rowsPerPage;
@@ -119,6 +142,23 @@ export default function ProveedoresList() {
         />
       </div>
 
+      {/* Filtro avanzado por categoría */}
+      <div className="filters-bar">
+        <label htmlFor="filtroCategoria">Categoría:</label>
+        <select
+          id="filtroCategoria"
+          value={categoriaFiltro}
+          onChange={(e) => setCategoriaFiltro(e.target.value)}
+        >
+          <option value="">Todas</option>
+          {categorias.map((c) => (
+            <option key={c.id_categoria_prov} value={c.id_categoria_prov}>
+              {c.catprov_nombre}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="table-container">
         <table className="table">
           <thead>
@@ -128,6 +168,7 @@ export default function ProveedoresList() {
               <th>Teléfono</th>
               <th>Correo</th>
               <th>Dirección</th>
+              <th>Categoría</th>
               <th>Estado</th>
               <th>Acciones</th>
             </tr>
@@ -140,6 +181,7 @@ export default function ProveedoresList() {
                 <td>{r.prov_tel || "-"}</td>
                 <td>{r.prov_correo || "-"}</td>
                 <td>{r.prov_direccion || "-"}</td>
+                <td>{r.categoria_nombre || r.catprov_nombre || "-"}</td>
                 <td>{estadoChip(r.id_estado_prov, r.estado_nombre)}</td>
                 <td className="actions-cell">
                   <Link
@@ -171,7 +213,7 @@ export default function ProveedoresList() {
             ))}
             {paginatedRows.length === 0 && (
               <tr>
-                <td colSpan="7" className="empty-row">
+                <td colSpan="8" className="empty-row">
                   No hay proveedores que coincidan con la búsqueda.
                 </td>
               </tr>
@@ -239,15 +281,38 @@ export default function ProveedoresList() {
         .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .page-header h2 { margin: 0; font-size: 1.75rem; color: #fff; }
         .header-actions { display: flex; gap: 8px; }
+
         .search-bar {
           display: flex; align-items: center; background-color: #3a3a3c;
           border: 1px solid #4a4a4e; border-radius: 8px; padding: 6px 10px;
-          margin-bottom: 16px; width: 100%; max-width: 480px;
+          margin-bottom: 8px; width: 100%; max-width: 480px;
         }
         .search-icon { color: #facc15; margin-right: 8px; }
         .search-bar input {
           flex: 1; background: transparent; border: none; outline: none; color: #fff; font-size: 1rem;
         }
+
+        /* Filtros */
+        .filters-bar {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 16px;
+          color: #e5e7eb;
+          font-size: 0.875rem;
+        }
+        .filters-bar label {
+          margin: 0;
+        }
+        .filters-bar select {
+          background-color: #111827;
+          border: 1px solid #4b5563;
+          border-radius: 6px;
+          padding: 6px 10px;
+          color: #e5e7eb;
+          font-size: 0.875rem;
+        }
+
         .table-container { background-color: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 12px; overflow: hidden; }
         .table { width: 100%; border-collapse: collapse; }
         .table th, .table td { padding: 14px 18px; text-align: left; border-bottom: 1px solid #3a3a3c; }
@@ -310,4 +375,5 @@ export default function ProveedoresList() {
     </DashboardLayout>
   );
 }
+
 

@@ -15,6 +15,8 @@ from django.utils.timezone import make_aware
 from rest_framework.views import APIView
 from django.db.models import Max, Sum, Case, When, Value, DecimalField
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import ValidationError
+
 
 
 from pizzeria.models import (
@@ -24,7 +26,7 @@ from pizzeria.models import (
     Proveedores, EstadoProveedores, CategoriaProveedores,
     Recetas, DetalleRecetas, CategoriaPlatos, EstadoReceta,
     DetallePedidos, Mesas, EstadoCompra, DetalleCompra, Compras,ProveedoresXInsumos,EstadoMesas,
-    EstadoVentas,DetalleVentas,
+    EstadoVentas,DetalleVentas,CategoriaProveedores
 )
 
 from .serializers import (
@@ -212,6 +214,20 @@ class InsumoViewSet(ModelViewSet):
     serializer_class = InsumoSerializer
     permission_classes = [IsAuthenticated]
 
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        new_estado = int(request.data.get("id_estado_insumo", instance.id_estado_insumo_id))
+
+        # si se intenta pasar a estado INACTIVO (2)
+        if new_estado == 2:
+            existe = DetalleRecetas.objects.filter(id_insumo=instance.id_insumo).exists()
+            if existe:
+                raise ValidationError({
+                    "detail": f"No se puede desactivar el insumo '{instance.ins_nombre}' porque está asociado a una o más recetas."
+                })
+
+        return super().update(request, *args, **kwargs)
+
 
 class PlatoViewSet(ModelViewSet):
     queryset = Platos.objects.all().order_by("-id_plato")
@@ -345,7 +361,265 @@ class PedidoViewSet(ModelViewSet):
     )
     serializer_class = PedidoSerializer
     permission_classes = [IsAuthenticated]
+    
+    @action(detail=True, methods=["post"], url_path="validar_stock_editar")
+    def validar_stock_editar(self, request, pk=None):
+        """
+        Valida stock para la EDICIÓN de un pedido.
 
+        - Recibe los 'detalles' que querés guardar.
+        - Usa detped_cantidad (cantidad nueva) y _min_cant (cantidad original)
+          para calcular SOLO el incremento (cantidad nueva - original).
+        - Suma reservas de TODOS los pedidos EN PROCESO, EXCEPTO este mismo.
+        - Suma insumos necesarios SOLO por el incremento.
+        - Si no alcanza stock de algún insumo -> 400 con mensaje corto.
+        - Si el pedido YA está ENTREGADO, además DESCUENTA del stock
+          solo el incremento (platos + insumos).
+        """
+        asegurar_caja_abierta()
+        from decimal import Decimal
+        from django.db import transaction
+
+        data = request.data
+        detalles = data.get("detalles", [])
+
+        if not detalles:
+            return Response({"detail": "El pedido no contiene ítems."}, status=400)
+
+        # { id_insumo: {"nombre":..., "unidad":..., "total": Decimal} }
+        requeridos = {}
+
+        # 0) Reservas por pedidos EN PROCESO, EXCLUYENDO este pedido
+        pedidos_abiertos = Pedidos.objects.filter(
+            id_estado_pedido_id=ESTADO_PEDIDO["EN_PROCESO"]
+        ).exclude(pk=pk)
+
+        if pedidos_abiertos.exists():
+            dets_abiertos = (
+                DetallePedidos.objects
+                .select_related("id_plato")
+                .filter(id_pedido__in=pedidos_abiertos)
+            )
+
+            for det_ab in dets_abiertos:
+                plato = det_ab.id_plato
+                if not plato:
+                    continue
+
+                cant_abierta = Decimal(str(det_ab.detped_cantidad or 0))
+                if cant_abierta <= 0:
+                    continue
+
+                receta = Recetas.objects.filter(id_plato=plato).first()
+                # Igual que en create: si el plato no usa receta, no reservamos insumos aquí
+                if not receta:
+                    continue
+
+                detalles_receta = (
+                    DetalleRecetas.objects
+                    .select_related("id_insumo")
+                    .filter(id_receta=receta)
+                )
+
+                for dr in detalles_receta:
+                    insumo = dr.id_insumo
+                    if not insumo:
+                        continue
+
+                    por_plato = Decimal(str(dr.detr_cant_unid))
+                    if por_plato <= 0:
+                        continue
+
+                    total_necesario = por_plato * cant_abierta
+
+                    entry = requeridos.setdefault(insumo.id_insumo, {
+                        "nombre": insumo.ins_nombre,
+                        "unidad": insumo.ins_unidad,
+                        "total": Decimal("0"),
+                    })
+                    entry["total"] += total_necesario
+
+        # 1) Insumos necesarios para el pedido EDITADO (solo el INCREMENTO)
+        #    y de paso guardamos la info de incrementos para luego descontar
+        incrementos = []  # lista de dicts por detalle
+
+        for det in detalles:
+            plato_id = det.get("id_plato")
+
+            # Cantidad total que querés dejar en el detalle
+            cantidad_total = Decimal(str(det.get("detped_cantidad", 0)))
+            # Cantidad original que tenía el detalle (lo que YA estaba)
+            cantidad_original = Decimal(str(det.get("_min_cant", 0)))
+
+            if cantidad_total <= 0:
+                return Response({"detail": "Cantidad inválida en un ítem."}, status=400)
+
+            if cantidad_original < 0:
+                cantidad_original = Decimal("0")
+
+            # Solo nos importa el incremento (lo nuevo que agregás)
+            incremento = cantidad_total - cantidad_original
+
+            # Si no estás aumentando (bajás o dejás igual), no consume stock extra
+            if incremento <= 0:
+                continue
+
+            plato = Platos.objects.filter(pk=plato_id).first()
+            if not plato:
+                return Response(
+                    {"detail": f"El plato con ID {plato_id} no existe."},
+                    status=400
+                )
+
+            # Stock del plato: primero usamos lo que ya hay preparado
+            stock_plato = Decimal(str(plato.plt_stock or 0))
+            desde_stock = min(stock_plato, incremento)
+            faltante = incremento - desde_stock
+
+            # Guardamos para posible descuento luego
+            incrementos.append({
+                "plato": plato,
+                "incremento": incremento,
+                "desde_stock": desde_stock,
+                "faltante": faltante,
+            })
+
+            # Si NO falta (todo el incremento sale de stock del plato), no se necesitan insumos
+            if faltante <= 0:
+                continue
+
+            # Si falta → se produciría usando RECETA => consume insumos
+            # Si falta → se produciría usando RECETA => consume insumos
+            receta = Recetas.objects.filter(id_plato=plato).first()
+            if not receta:
+                return Response(
+                    {
+                        "detail": (
+                            f"El plato '{plato.plt_nombre}' no tiene receta para "
+                            f"producir {faltante} unidad(es) extra."
+                        )
+                    },
+                    status=400
+                )
+
+            detalles_receta_qs = (
+                DetalleRecetas.objects
+                .select_related("id_insumo")
+                .filter(id_receta=receta)
+            )
+
+            # 🚫 Receta sin insumos asociados
+            if not detalles_receta_qs.exists():
+                return Response(
+                    {
+                        "detail": (
+                            f"La receta del plato '{plato.plt_nombre}' no tiene insumos "
+                            f"asociados. Debe tener al menos un insumo."
+                        )
+                    },
+                    status=400
+                )
+
+            for dr in detalles_receta_qs:
+                insumo = dr.id_insumo
+                if not insumo:
+                    continue
+
+                por_plato = Decimal(str(dr.detr_cant_unid))
+                if por_plato <= 0:
+                    continue
+
+                total_necesario = por_plato * faltante
+
+                entry = requeridos.setdefault(insumo.id_insumo, {
+                    "nombre": insumo.ins_nombre,
+                    "unidad": insumo.ins_unidad,
+                    "total": Decimal("0"),
+                })
+                entry["total"] += total_necesario
+
+
+        # 2) VALIDAR STOCK DE INSUMOS (reservas + incremento del pedido)
+        if requeridos:
+            ids = list(requeridos.keys())
+            for ins in Insumos.objects.filter(pk__in=ids):
+                necesario = requeridos[ins.id_insumo]["total"]
+                disponible = Decimal(str(ins.ins_stock_actual or 0))
+
+                if disponible < necesario:
+                    faltante = Decimal(str(necesario)) - Decimal(str(disponible))
+                    if faltante < 0:
+                        faltante = Decimal("0")
+
+                    faltante_fmt = f"{faltante:.3f}"
+
+                    msg_corto = (
+                        f"Stock insuficiente: falta {faltante_fmt} {ins.ins_unidad} "
+                        f"de {ins.ins_nombre}."
+                    )
+
+                    return Response({"detail": msg_corto}, status=400)
+
+        # 3) Si el pedido está ENTREGADO -> descontar stock por el INCREMENTO
+        pedido = self.get_object()
+        if pedido.id_estado_pedido_id == ESTADO_PEDIDO["ENTREGADO"] and incrementos:
+            with transaction.atomic():
+                # 3.1) Descontar primero de stock de plato
+                for item in incrementos:
+                    plato = item["plato"]
+                    desde_stock = item["desde_stock"]
+                    faltante = item["faltante"]
+
+                    # Descontar del stock del plato la parte que sale directamente del stock
+                    if desde_stock > 0:
+                        Platos.objects.filter(pk=plato.pk).update(
+                            plt_stock=F("plt_stock") - desde_stock
+                        )
+
+                    # 3.2) Si hay faltante → se produce con receta y se descuentan insumos
+                    if faltante > 0:
+                        receta = Recetas.objects.filter(id_plato=plato).first()
+                        if not receta:
+                            # En teoría no debería pasar porque ya se validó arriba
+                            return Response(
+                                {
+                                    "detail": (
+                                        f"El plato '{plato.plt_nombre}' no tiene receta "
+                                        f"para producir el faltante."
+                                    )
+                                },
+                                status=400,
+                            )
+
+                        detrec_qs = (
+                            DetalleRecetas.objects
+                            .select_related("id_insumo")
+                            .filter(id_receta=receta)
+                        )
+
+                        for dr in detrec_qs:
+                            insumo = dr.id_insumo
+                            if not insumo:
+                                continue
+
+                            por_plato = Decimal(str(dr.detr_cant_unid))
+                            if por_plato <= 0:
+                                continue
+
+                            total_desc = por_plato * faltante
+                            if total_desc <= 0:
+                                continue
+
+                            Insumos.objects.filter(pk=insumo.pk).update(
+                                ins_stock_actual=F("ins_stock_actual") - total_desc
+                            )
+
+        # Si llega acá, el stock alcanza
+        return Response({"ok": True}, status=200)
+
+
+    # (acá siguen tus métodos existentes: descontar_insumos, generar_venta,
+    #  cobrar_y_finalizar, create override, update, etc. tal cual los tenías)
     # ────────────────────────────────────────────────
     # Acción personalizada para descontar insumos
     # ────────────────────────────────────────────────
@@ -505,6 +779,7 @@ class PedidoViewSet(ModelViewSet):
                 })
 
             # 3.2) Si falta, consumir insumos según receta y trazar producción + despacho
+            # 3.2) Si falta, consumir insumos según receta y trazar producción + despacho
             if faltante > 0:
                 receta = Recetas.objects.filter(id_plato=plato).first()
                 if not receta:
@@ -524,6 +799,18 @@ class PedidoViewSet(ModelViewSet):
                     .select_related("id_insumo")
                     .filter(id_receta=receta)
                 )
+
+                # 🚫 Receta sin insumos asociados
+                if not detrec_qs.exists():
+                    return Response(
+                        {
+                            "detail": (
+                                f"La receta del plato '{plato.plt_nombre}' no tiene insumos "
+                                f"asociados. Debe tener al menos un insumo."
+                            )
+                        },
+                        status=400,
+                    )
 
                 # 3.2.a) Restar insumos por la producción del faltante
                 for dr in detrec_qs:
@@ -547,6 +834,7 @@ class PedidoViewSet(ModelViewSet):
                         "delta": float(-total_desc),
                         "campo": "ins_stock_actual",
                     })
+
 
                 # 3.2.b) Trazabilidad: producir (sumar) y despachar (restar) el faltante
                 Platos.objects.filter(pk=plato.pk).update(
@@ -809,18 +1097,37 @@ class PedidoViewSet(ModelViewSet):
                 # Usamos RECETA para ver cuántos insumos va a consumir este pedido abierto
                 receta = Recetas.objects.filter(id_plato=plato).first()
                 if not receta:
-                    # Si el plato NO usa receta (solo stock de plato), no reserva insumos.
-                    # La reserva de stock de plato se está manejando en otro lado,
-                    # aquí nos enfocamos en insumos.
-                    continue
+                    # Si querés, podés dejar pasar estos pedidos sin receta:
+                    # continue
+                    return Response(
+                        {
+                            "detail": (
+                                f"El plato '{plato.plt_nombre}' no tiene receta "
+                                f"para producir {cant_abierta} unidad(es)."
+                            )
+                        },
+                        status=400
+                    )
 
-                detalles_receta = (
+                detalles_receta_qs = (
                     DetalleRecetas.objects
                     .select_related("id_insumo")
                     .filter(id_receta=receta)
                 )
 
-                for dr in detalles_receta:
+                # 🚫 Receta sin insumos asociados
+                if not detalles_receta_qs.exists():
+                    return Response(
+                        {
+                            "detail": (
+                                f"La receta del plato '{plato.plt_nombre}' no tiene insumos "
+                                f"asociados. Debe tener al menos un insumo."
+                            )
+                        },
+                        status=400
+                    )
+
+                for dr in detalles_receta_qs:
                     insumo = dr.id_insumo
                     if not insumo:
                         continue
@@ -829,6 +1136,7 @@ class PedidoViewSet(ModelViewSet):
                     if por_plato <= 0:
                         continue
 
+                    # acá usamos cant_abierta, no 'faltante'
                     total_necesario = por_plato * cant_abierta
 
                     entry = requeridos.setdefault(insumo.id_insumo, {
@@ -837,6 +1145,8 @@ class PedidoViewSet(ModelViewSet):
                         "total": Decimal("0"),
                     })
                     entry["total"] += total_necesario
+
+
 
         # ─────────────────────────────────────────────
         # 1) Insumos necesarios para el NUEVO pedido
@@ -912,19 +1222,21 @@ class PedidoViewSet(ModelViewSet):
                 disponible = Decimal(str(ins.ins_stock_actual or 0))
 
                 if disponible < necesario:
-                    reservado = necesario - (ins.ins_stock_actual or 0)
-                    reservado = max(reservado, 0)
+                    faltante = Decimal(str(necesario)) - Decimal(str(disponible))
 
-                    detalle_msg = (
-                        f"Insumo insuficiente: {ins.ins_nombre}.\n"
-                        f"• Stock total: {ins.ins_stock_actual} {ins.ins_unidad}\n"
-                        f"• Reservado por pedidos en proceso: {reservado} {ins.ins_unidad}\n"
-                        f"• Disponible real (stock - reservas): {disponible} {ins.ins_unidad}\n"
-                        f"• Necesario para este pedido: {necesario} {ins.ins_unidad}\n\n"
-                        f"⚠ No alcanza: disponible descontando reservas = {disponible} {ins.ins_unidad}."
+                    # Normalizar para que no dé negativos
+                    if faltante < 0:
+                        faltante = Decimal("0")
+
+                    # Limpiar el formato: siempre mostrar con 3 decimales
+                    faltante_fmt = f"{faltante:.3f}"
+
+                    msg_corto = (
+                        f"Stock insuficiente: falta {faltante_fmt} {ins.ins_unidad} "
+                        f"de {ins.ins_nombre}."
                     )
 
-                    return Response({"detail": detalle_msg}, status=400)
+                    return Response({"detail": msg_corto}, status=400)
 
 
         # ─────────────────────────────────────────────
@@ -1236,9 +1548,15 @@ class DetalleRecetaViewSet(ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         rec_id = self.request.query_params.get("id_receta")
+        ins_id = self.request.query_params.get("id_insumo")
+
         if rec_id:
             qs = qs.filter(id_receta_id=rec_id)
+        if ins_id:
+            qs = qs.filter(id_insumo_id=ins_id)
+
         return qs
+
 
 
 class CategoriaPlatoViewSet(ModelViewSet):
@@ -1287,6 +1605,18 @@ class CompraViewSet(ModelViewSet):
     serializer_class = CompraSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        """
+        Permite filtrar por proveedor desde el front:
+        /api/compras/?id_proveedor=<id>
+        (lo usás en ProveedorInsumos.jsx para ver compras de un proveedor)
+        """
+        qs = super().get_queryset()
+        id_proveedor = self.request.query_params.get("id_proveedor")
+        if id_proveedor:
+            qs = qs.filter(id_proveedor_id=id_proveedor)
+        return qs
+
 
 class DetalleCompraViewSet(ModelViewSet):
     queryset = (
@@ -1298,13 +1628,140 @@ class DetalleCompraViewSet(ModelViewSet):
     serializer_class = DetalleCompraSerializer
     permission_classes = [IsAuthenticated]
 
-    # Permitir filtro por ?id_compra=<id> para editar
     def get_queryset(self):
         qs = super().get_queryset()
         id_compra = self.request.query_params.get("id_compra")
         if id_compra:
             qs = qs.filter(id_compra=id_compra)
         return qs
+
+    # ================================================================
+    # HELPERS
+    # ================================================================
+    def _estado_ids_en_proceso(self):
+        ids = []
+        for est in EstadoCompra.objects.all():
+            nombre = (est.estcom_nombre or "").strip().lower().replace("_", " ")
+            if nombre == "en proceso":
+                ids.append(est.id_estado_compra)
+        return ids
+
+    def _reservado_en_proceso(self, insumo, excluir_compra=None):
+        """
+        Calcula stock reservado para ESTE insumo por compras EN PROCESO.
+        Cada compra en proceso aporta:
+            detcom_cantidad * ins_capacidad
+        """
+        from decimal import Decimal
+
+        estado_ids = self._estado_ids_en_proceso()
+        if not estado_ids:
+            return Decimal("0")
+
+        compras = Compras.objects.filter(id_estado_compra_id__in=estado_ids)
+
+        if excluir_compra:
+            compras = compras.exclude(id_compra=excluir_compra)
+
+        dets = DetalleCompra.objects.filter(
+            id_compra__in=compras,
+            id_insumo=insumo
+        )
+
+        total_envases = Decimal("0")
+        for d in dets:
+            total_envases += Decimal(str(d.detcom_cantidad or 0))
+
+        cap = Decimal(str(insumo.ins_capacidad or 0))
+        return total_envases * cap
+
+    # ================================================================
+    # CREATE — incluye validación para REGISTRAR + EDITAR
+    # ================================================================
+    def create(self, request, *args, **kwargs):
+        """
+        Valida tanto registrar compra como editar compra.
+
+        Fórmula:
+            ocupado_total = stock_actual + reservado + nuevo_ingreso
+        Debe cumplir:
+            ocupado_total <= stock_max
+
+        Donde:
+            stock_max = ins_stock_max   (atributo del insumo)
+            nuevo_ingreso = detcom_cantidad * ins_capacidad
+        """
+        from decimal import Decimal, InvalidOperation
+
+        data = request.data
+        id_compra = data.get("id_compra")
+        id_insumo = data.get("id_insumo")
+        cant_raw = data.get("detcom_cantidad")
+
+        # ---------------- Validaciones básicas ----------------
+        if not id_insumo:
+            return Response({"detail": "Debe indicar un insumo."}, status=400)
+
+        if cant_raw in (None, ""):
+            return Response({"detail": "Debe indicar cantidad."}, status=400)
+
+        try:
+            cantidad = Decimal(str(cant_raw))
+        except InvalidOperation:
+            return Response({"detail": "Cantidad inválida."}, status=400)
+
+        if cantidad <= 0:
+            return Response({"detail": "La cantidad debe ser mayor que 0."}, status=400)
+
+        if cantidad != cantidad.to_integral_value():
+            return Response({"detail": "La cantidad debe ser un número entero."}, status=400)
+
+        # ---------------- Obtener insumo ----------------
+        try:
+            insumo = Insumos.objects.get(pk=id_insumo)
+        except Insumos.DoesNotExist:
+            return Response({"detail": "Insumo no encontrado."}, status=400)
+
+        cap = Decimal(str(insumo.ins_capacidad or 0))
+        if cap <= 0:
+            return Response(
+                {"detail": f"El insumo '{insumo.ins_nombre}' no tiene capacidad configurada."},
+                status=400,
+            )
+
+        stock_actual = Decimal(str(insumo.ins_stock_actual or 0))
+        stock_max = Decimal(str(insumo.ins_stock_max or 0))  # ⭐ STOCK MAX REAL
+
+        # ---------------- Reservado por otras compras en proceso ----------------
+        reservado = self._reservado_en_proceso(
+            insumo,
+            excluir_compra=id_compra  # ⭐ si estás editando, no sumamos esta compra anterior
+        )
+
+        # ---------------- Cálculo de nuevo ingreso ----------------
+        nuevo_ingreso = cantidad * cap
+
+        ocupado_total = stock_actual + reservado + nuevo_ingreso
+
+        if stock_max > 0 and ocupado_total > stock_max:
+            return Response(
+                {
+                    "detail": (
+                        "No se puede registrar la compra porque supera el stock máximo.\n"
+                        f"• Stock actual: {stock_actual:.3f}\n"
+                        f"• Reservado (otras compras en proceso): {reservado:.3f}\n"
+                        f"• Nuevo ingreso: {nuevo_ingreso:.3f}\n"
+                        f"• Stock máximo permitido: {stock_max:.3f}"
+                    )
+                },
+                status=400,
+            )
+
+        # Si todo está OK → continuar
+        return super().create(request, *args, **kwargs)
+
+
+
 
 class ProveedorInsumoViewSet(ModelViewSet):
     """
@@ -1337,21 +1794,24 @@ class ProveedorInsumoViewSet(ModelViewSet):
 # ESTADO DE CAJA
 # ──────────────────────────────────────────────────────────────────────────────
 class CajaEstadoView(APIView):
-    """
-    GET /api/caja/estado/
-    Devuelve:
-        "abierta": bool,
-        "apertura": {...} | null,
-        "cierre": {...} | null,
-        "hoy_ingresos": "1234.56",
-        "hoy_egresos": "200.00",
-        "hoy_saldo": "1034.56",
-        "totales_metodo": [
-            { "id_metodo_pago": 1, "nombre": "Efectivo", "total": 1500.00 },
-            ...
-        ]
-    """
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
+        """
+        Devuelve el estado de la CAJA de HOY.
+
+        - Detecta la última APERTURA de hoy.
+        - Considera solo los movimientos DESDE esa apertura (caja actual).
+        - Calcula:
+            * apertura_monto: monto inicial de esa apertura
+            * hoy_saldo: ingresos - egresos (todos los métodos)
+            * efectivo_disponible:
+                  apertura_monto
+                + ingresos en EFECTIVO (solo de esta caja)
+                - egresos en EFECTIVO (solo de esta caja)
+        """
+        from decimal import Decimal
+
         hoy = timezone.localdate()
         inicio = timezone.make_aware(
             timezone.datetime.combine(hoy, timezone.datetime.min.time())
@@ -1360,78 +1820,136 @@ class CajaEstadoView(APIView):
             timezone.datetime.combine(hoy, timezone.datetime.max.time())
         )
 
-        ID_APERTURA = TIPO_MOV_CAJA["APERTURA"]
-        ID_INGRESO  = TIPO_MOV_CAJA["INGRESO"]
-        ID_EGRESO   = TIPO_MOV_CAJA["EGRESO"]
-        ID_CIERRE   = TIPO_MOV_CAJA["CIERRE"]
-
-        qs_dia = (
+        # Todos los movimientos de HOY
+        movs_hoy = (
             MovimientosCaja.objects
-            .select_related("id_metodo_pago", "id_tipo_movimiento_caja")
             .filter(mv_fecha_hora__range=(inicio, fin))
+            .order_by("mv_fecha_hora")
         )
 
-        # Último movimiento del día → define si la caja está abierta o cerrada
-        ultimo = qs_dia.order_by("mv_fecha_hora").last()
-        caja_abierta = bool(ultimo and ultimo.id_tipo_movimiento_caja_id != ID_CIERRE)
+        # valores por defecto para que el front no rompa
+        apertura_fecha = None
+        apertura_empleado_nombre = "-"
 
-        # Última apertura de HOY
+        if not movs_hoy.exists():
+            # No hubo movimientos hoy → caja cerrada
+            return Response({
+                "abierta": False,
+                "mensaje": "La caja no fue abierta hoy.",
+                "apertura_monto": "0.00",
+                "hoy_saldo": "0.00",
+                "efectivo_disponible": "0.00",
+                "totales_metodo": {},
+                "apertura_fecha": apertura_fecha,
+                "apertura_empleado_nombre": apertura_empleado_nombre,
+            })
+
+        # ¿La caja está abierta? (último movimiento NO es CIERRE)
+        ultimo = movs_hoy.last()
+        abierta = ultimo.id_tipo_movimiento_caja_id != TIPO_MOV_CAJA["CIERRE"]
+
+        # Última APERTURA de hoy (define la caja ACTUAL)
         apertura = (
-            qs_dia.filter(id_tipo_movimiento_caja_id=ID_APERTURA)
-            .order_by("-mv_fecha_hora")
-            .first()
+            movs_hoy
+            .filter(id_tipo_movimiento_caja_id=TIPO_MOV_CAJA["APERTURA"])
+            .last()
         )
 
-        # Último cierre de HOY (si hubiera)
-        cierre = (
-            qs_dia.filter(id_tipo_movimiento_caja_id=ID_CIERRE)
-            .order_by("-mv_fecha_hora")
-            .first()
+        if not apertura:
+            # No hay apertura hoy → tratamos como cerrada
+            return Response({
+                "abierta": False,
+                "mensaje": "No se encontró movimiento de apertura hoy.",
+                "apertura_monto": "0.00",
+                "hoy_saldo": "0.00",
+                "efectivo_disponible": "0.00",
+                "totales_metodo": {},
+                "apertura_fecha": apertura_fecha,
+                "apertura_empleado_nombre": apertura_empleado_nombre,
+            })
+
+        # Datos de apertura (fecha/hora y empleado)
+        apertura_fecha = apertura.mv_fecha_hora
+
+        try:
+            emp = getattr(apertura, "id_empleado", None)
+            if emp:
+                nom = (getattr(emp, "emp_nombre", "") or "").strip()
+                ape = (getattr(emp, "emp_apellido", "") or "").strip()
+                full = f"{nom} {ape}".strip()
+                if full:
+                    apertura_empleado_nombre = full
+        except Exception:
+            # si algo falla, dejamos "-"
+            apertura_empleado_nombre = "-"
+
+        # Movimientos SOLO de la caja actual (desde la última apertura)
+        movs_rango = movs_hoy.filter(mv_fecha_hora__gte=apertura.mv_fecha_hora)
+
+        ingresos_qs = movs_rango.filter(
+            id_tipo_movimiento_caja_id=TIPO_MOV_CAJA["INGRESO"]
+        )
+        egresos_qs = movs_rango.filter(
+            id_tipo_movimiento_caja_id=TIPO_MOV_CAJA["EGRESO"]
         )
 
-        # Rango para ingresos/egresos: DESDE LA ÚLTIMA APERTURA DE HOY
-        if apertura:
-            movs_rango = qs_dia.filter(mv_fecha_hora__gte=apertura.mv_fecha_hora)
-        else:
-            movs_rango = qs_dia
+        # Totales generales (todos los métodos)
+        total_ingresos = ingresos_qs.aggregate(t=Sum("mv_monto"))["t"] or Decimal("0")
+        total_egresos = egresos_qs.aggregate(t=Sum("mv_monto"))["t"] or Decimal("0")
+        hoy_saldo = total_ingresos - total_egresos
 
-        ingresos_qs = movs_rango.filter(id_tipo_movimiento_caja_id=ID_INGRESO)
-        egresos_qs  = movs_rango.filter(id_tipo_movimiento_caja_id=ID_EGRESO)
-
-        total_ingresos = ingresos_qs.aggregate(s=Sum("mv_monto"))["s"] or Decimal("0")
-        total_egresos  = egresos_qs.aggregate(s=Sum("mv_monto"))["s"] or Decimal("0")
-        saldo = total_ingresos - total_egresos
-
-        # Totales por método de pago (desde la apertura actual)
-        totales_metodo = []
-        for row in (
-            ingresos_qs
+        # Totales por método (informativo, por si lo necesitás)
+        totales_metodo_qs = (
+            movs_rango
             .values("id_metodo_pago", "id_metodo_pago__metpag_nombre")
-            .annotate(total=Sum("mv_monto"))
-            .order_by("id_metodo_pago__metpag_nombre")
-        ):
-            totales_metodo.append(
-                {
-                    "id_metodo_pago": row["id_metodo_pago"],
-                    "nombre": row["id_metodo_pago__metpag_nombre"] or "Sin método",
-                    # Lo mando como número; en el front usás Number()
-                    "total": float(row["total"] or 0),
-                }
+            .annotate(
+                total=Sum(
+                    Case(
+                        When(id_tipo_movimiento_caja_id__in=[
+                            TIPO_MOV_CAJA["INGRESO"],
+                            TIPO_MOV_CAJA["EGRESO"],
+                            TIPO_MOV_CAJA["APERTURA"],
+                            TIPO_MOV_CAJA["CIERRE"],
+                        ], then="mv_monto"),
+                        default=Value(0),
+                        output_field=DecimalField(),
+                    )
+                )
             )
-
-        from .serializers import MovimientoCajaSerializer
-
-        return Response(
-            {
-                "abierta": caja_abierta,
-                "apertura": MovimientoCajaSerializer(apertura).data if apertura else None,
-                "cierre": MovimientoCajaSerializer(cierre).data if cierre else None,
-                "hoy_ingresos": f"{total_ingresos:.2f}",
-                "hoy_egresos": f"{total_egresos:.2f}",
-                "hoy_saldo": f"{saldo:.2f}",
-                "totales_metodo": totales_metodo,
-            }
         )
+
+        totales_metodo = [
+            {
+                "id_metodo_pago": fila["id_metodo_pago"],
+                "nombre": fila["id_metodo_pago__metpag_nombre"] or "Sin método",
+                "total": float(fila["total"] or 0),
+            }
+            for fila in totales_metodo_qs
+        ]
+
+        # EFECTIVO disponible = apertura + ingresos efectivo - egresos efectivo (de esta caja)
+        ingresos_efectivo = ingresos_qs.filter(
+            id_metodo_pago_id=METODO_PAGO["EFECTIVO"]
+        ).aggregate(t=Sum("mv_monto"))["t"] or Decimal("0")
+
+        egresos_efectivo = egresos_qs.filter(
+            id_metodo_pago_id=METODO_PAGO["EFECTIVO"]
+        ).aggregate(t=Sum("mv_monto"))["t"] or Decimal("0")
+
+        apertura_monto = Decimal(str(apertura.mv_monto or 0))
+        efectivo_disponible = apertura_monto + ingresos_efectivo - egresos_efectivo
+
+        return Response({
+            "abierta": abierta,
+            "apertura_monto": f"{apertura_monto:.2f}",
+            "hoy_saldo": f"{hoy_saldo:.2f}",
+            "efectivo_disponible": f"{efectivo_disponible:.2f}",
+            "totales_metodo": totales_metodo,
+            "apertura_fecha": apertura_fecha.isoformat() if apertura_fecha else None,
+            "apertura_empleado_nombre": apertura_empleado_nombre,
+        })
+
+
 
 
 
@@ -1617,10 +2135,13 @@ class MovimientosCajaViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            inicio_ciclo = ultima_apertura.mv_fecha_hora  # desde esta apertura en adelante
+            inicio_ciclo = ultima_apertura.mv_fecha_hora
             ahora = timezone.now()
 
-            movimientos_ciclo = qs_hoy.filter(mv_fecha_hora__gte=inicio_ciclo, mv_fecha_hora__lte=ahora)
+            movimientos_ciclo = qs_hoy.filter(
+                mv_fecha_hora__gte=inicio_ciclo,
+                mv_fecha_hora__lte=ahora,
+            )
 
             monto_apertura = ultima_apertura.mv_monto or 0
             ingresos = (
@@ -1633,9 +2154,17 @@ class MovimientosCajaViewSet(viewsets.ModelViewSet):
             )
 
             # saldo final de este ciclo: APERTURA (última) + INGRESOS - EGRESOS
-            data["mv_monto"] = monto_apertura + ingresos - egresos
+            saldo_final = Decimal(str(monto_apertura)) + Decimal(str(ingresos)) - Decimal(str(egresos))
+
+            # ⚠ Para no violar el CHECK (mv_monto >= 0) nunca guardamos negativo
+            if saldo_final < 0:
+                data["mv_monto"] = Decimal("0.00")
+            else:
+                data["mv_monto"] = saldo_final
+
             data["id_venta"] = None
             data["id_metodo_pago"] = None
+
 
         # ── Validar y crear ───────────────────────────────────────────
         serializer = self.get_serializer(data=data)
@@ -1984,11 +2513,13 @@ class CajaHistorialDetalleView(APIView):
             .order_by("id_metodo_pago__metpag_nombre")
         )
 
+        from decimal import Decimal  # asegurate de tenerlo importado arriba del archivo
+
         ingresos_por_mp = list(ingresos_qs)
         egresos_por_mp = list(egresos_qs)
 
         # Sumar la apertura al método EFECTIVO dentro de los ingresos
-        monto_apertura = float(apertura.mv_monto or 0)
+        monto_apertura = apertura.mv_monto or Decimal("0")
         nombre_efectivo = getattr(apertura.id_metodo_pago, "metpag_nombre", "Efectivo")
 
         if monto_apertura > 0:
@@ -1999,14 +2530,14 @@ class CajaHistorialDetalleView(APIView):
                     break
 
             if idx_existente is not None:
-                ingresos_por_mp[idx_existente]["total"] = (
-                    (ingresos_por_mp[idx_existente]["total"] or 0) + monto_apertura
-                )
+                base_total = ingresos_por_mp[idx_existente]["total"] or Decimal("0")
+                ingresos_por_mp[idx_existente]["total"] = base_total + monto_apertura
             else:
                 ingresos_por_mp.append({
                     "id_metodo_pago__metpag_nombre": nombre_efectivo,
                     "total": monto_apertura,
                 })
+
 
         # Totales generales (sin contar la apertura como ingreso)
         total_ing = sum((r["total"] or 0) for r in ingresos_qs)
@@ -2090,3 +2621,8 @@ class CajaHistorialDetalleView(APIView):
         }
 
         return Response(data, status=200)
+
+class CategoriaProveedorViewSet(ModelViewSet): # <--- LA SOLUCIÓN
+    queryset = CategoriaProveedores.objects.all().order_by("id_categoria_prov")
+    serializer_class = CategoriaProveedorSerializer
+    permission_classes = [IsAuthenticated]

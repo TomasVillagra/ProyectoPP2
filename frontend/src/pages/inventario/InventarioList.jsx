@@ -48,21 +48,45 @@ export default function InventarioList() {
     });
   };
 
-  const handleToggleEstado = (insumo) => {
+  // 🔍 helper para ver si un insumo está usado en alguna receta (consulta al back)
+  const insumoEstaEnRecetas = async (insumo) => {
+    const id = insumo.id_insumo;
+    if (!id) return false;
+
+    try {
+      const res = await api.get(`/api/detalle-recetas/`, {
+        params: { id_insumo: id, page_size: 1 },
+      });
+
+      const dataRaw = Array.isArray(res.data?.results)
+        ? res.data.results
+        : res.data;
+      const lista = Array.isArray(dataRaw) ? dataRaw : [];
+
+      // Aseguramos que realmente sea ESTE insumo
+      return lista.some(
+        (d) =>
+          Number(d.id_insumo) === Number(id) ||
+          Number(d.id_insumo_id) === Number(id)
+      );
+    } catch (e) {
+      console.error("Error consultando detalle-recetas", e);
+      return false;
+    }
+  };
+
+
+
+  const handleToggleEstado = async (insumo) => {
     const isActivating = insumo.id_estado_insumo !== 1;
 
-    // 🛑 Si está en receta, no dejar desactivar
+    // 🛑 Si voy a DESACTIVAR, primero pregunto al back si el insumo está en alguna receta
     if (!isActivating) {
-      const usadoEnReceta =
-        insumo.tiene_recetas ||
-        insumo.en_receta ||
-        insumo.usado_en_recetas ||
-        insumo.asociado_recetas;
-
-      if (usadoEnReceta) {
+      const usado = await insumoEstaEnRecetas(insumo);
+      if (usado) {
         setAlert({
           isOpen: true,
-          message: `No se puede desactivar el insumo "${insumo.ins_nombre}" porque está asociado a una receta.`,
+          message: `No se puede desactivar el insumo "${insumo.ins_nombre}" porque está asociado a una o más recetas de platos.`,
         });
         return;
       }
@@ -536,7 +560,7 @@ export default function InventarioList() {
         .table-dark {
           width:100%;
           border-collapse:separate;
-          border-spacing:0 4px;        /* espacio entre filas */
+          border-spacing:0 4px;
           background:transparent;
           color:#eaeaea;
         }
@@ -677,6 +701,7 @@ export default function InventarioList() {
     </DashboardLayout>
   );
 }
+
 
 
 

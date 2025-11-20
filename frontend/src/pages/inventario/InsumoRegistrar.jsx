@@ -12,6 +12,24 @@ const UNIDADES = ["u", "kg", "g", "l", "ml"];
 // 👉 helper para normalizar (ignorar mayúsculas y espacios)
 const normalizeName = (s) => (s || "").toLowerCase().replace(/\s+/g, "");
 
+// 👉 helper para límites de capacidad según unidad
+const getCapacidadConstraints = (unidad) => {
+  switch (unidad) {
+    case "kg":
+      return { min: 1, max: 60, step: 0.01 };
+    case "g":
+      return { min: 100, max: 100000, step: 1 };
+    case "u":
+      return { min: 1, max: 100, step: 1 };
+    case "l":
+      return { min: 1, max: 60, step: 0.01 };
+    case "ml":
+      return { min: 100, max: 100000, step: 1 };
+    default:
+      return { min: 0.01, max: undefined, step: 0.01 };
+  }
+};
+
 export default function InsumoRegistrar() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -21,9 +39,9 @@ export default function InsumoRegistrar() {
   const [form, setForm] = useState({
     ins_nombre: "",
     ins_unidad: "kg", // default
-    ins_cantidad: "0",     // 👈 SIEMPRE 0 AL REGISTRAR
+    ins_cantidad: "0",     // 👈 SIEMPRE 0 AL REGISTRAR (NO SE MUESTRA)
     ins_capacidad: "",
-    ins_stock_actual: "0", // 👈 STOCK INICIAL 0
+    ins_stock_actual: "0", // 👈 STOCK INICIAL 0 (NO SE MUESTRA)
     ins_punto_reposicion: "",
     ins_stock_min: "",
     ins_stock_max: "",
@@ -52,46 +70,77 @@ export default function InsumoRegistrar() {
       e.ins_unidad = "Elegí una unidad válida (u, kg, g, l, ml).";
     }
 
-    // 👉 Validar SOLO capacidad (cantidad inicial es siempre 0)
-    if (capacidad === null) e.ins_capacidad = "La capacidad es obligatoria.";
-    else if (isNaN(capacidad) || capacidad <= 0)
-      e.ins_capacidad = "Debe ser mayor a 0.";
+    // ▶ Validar capacidad según unidad
+    if (capacidad === null) {
+      e.ins_capacidad = "La capacidad es obligatoria.";
+    } else if (isNaN(capacidad)) {
+      e.ins_capacidad = "La capacidad debe ser un número.";
+    } else if (unidad) {
+      const { min, max } = getCapacidadConstraints(unidad);
 
-    // Punto de reposición / stock mínimo / máximo
-    if (puntoRepo === null)
+      if (min !== undefined && capacidad < min) {
+        e.ins_capacidad = `La capacidad mínima para ${unidad} es ${min}.`;
+      } else if (max !== undefined && capacidad > max) {
+        e.ins_capacidad = `La capacidad máxima para ${unidad} es ${max}.`;
+      }
+
+      if (unidad === "u" && !Number.isInteger(capacidad)) {
+        e.ins_capacidad = "Para unidad 'u' la capacidad debe ser un número entero.";
+      }
+    }
+
+    // ▶ Punto de reposición / stock mínimo / stock máximo (obligatorios)
+    if (puntoRepo === null) {
       e.ins_punto_reposicion = "El punto de reposición es obligatorio.";
-    else if (isNaN(puntoRepo) || puntoRepo < 0)
+    } else if (isNaN(puntoRepo) || puntoRepo < 0) {
       e.ins_punto_reposicion = "No puede ser negativo.";
+    }
 
-    if (stockMin === null)
+    if (stockMin === null) {
       e.ins_stock_min = "El stock mínimo es obligatorio.";
-    else if (isNaN(stockMin) || stockMin < 0)
+    } else if (isNaN(stockMin) || stockMin < 0) {
       e.ins_stock_min = "No puede ser negativo.";
-
-    if (values.ins_stock_max !== "" && values.ins_stock_max !== null) {
-      if (stockMax === null || isNaN(stockMax))
-        e.ins_stock_max = "Debe ser un número.";
-      else if (stockMax < 0) e.ins_stock_max = "No puede ser negativo.";
-      else if (stockMin !== null && !e.ins_stock_min && stockMin > stockMax)
-        e.ins_stock_min = "El mínimo no puede superar al máximo.";
     }
 
-    // Punto de reposición entre min y max (si max existe)
-    if (puntoRepo !== null && !isNaN(puntoRepo)) {
-      if (stockMin !== null && !isNaN(stockMin) && puntoRepo < stockMin) {
-        e.ins_punto_reposicion = "Debe ser ≥ al stock mínimo.";
-      }
-      if (
-        values.ins_stock_max !== "" &&
-        stockMax !== null &&
-        !isNaN(stockMax) &&
-        puntoRepo > stockMax
-      ) {
-        e.ins_punto_reposicion = "Debe ser ≤ al stock máximo.";
+    if (stockMax === null) {
+      e.ins_stock_max = "El stock máximo es obligatorio.";
+    } else if (isNaN(stockMax) || stockMax < 0) {
+      e.ins_stock_max = "No puede ser negativo.";
+    }
+
+    // ▶ Reglas de orden estricto:
+    // stock_min < stock_max
+    // stock_min < punto_repo < stock_max
+    if (
+      stockMin !== null &&
+      stockMax !== null &&
+      !isNaN(stockMin) &&
+      !isNaN(stockMax)
+    ) {
+      if (!(stockMin < stockMax)) {
+        e.ins_stock_min = "El stock mínimo debe ser menor que el stock máximo.";
+        e.ins_stock_max = "El stock máximo debe ser mayor que el stock mínimo.";
       }
     }
 
-    // Nota: no validamos stock_actual porque se fija en 0 al registrar
+    if (
+      stockMin !== null &&
+      stockMax !== null &&
+      puntoRepo !== null &&
+      !isNaN(stockMin) &&
+      !isNaN(stockMax) &&
+      !isNaN(puntoRepo)
+    ) {
+      if (!(stockMin < puntoRepo && puntoRepo < stockMax)) {
+        if (puntoRepo <= stockMin) {
+          e.ins_punto_reposicion =
+            "El punto de reposición debe ser mayor que el stock mínimo.";
+        } else if (puntoRepo >= stockMax) {
+          e.ins_punto_reposicion =
+            "El punto de reposición debe ser menor que el stock máximo.";
+        }
+      }
+    }
 
     return e;
   };
@@ -178,6 +227,10 @@ export default function InsumoRegistrar() {
     }
   };
 
+  const { min: capMin, max: capMax, step: capStep } = getCapacidadConstraints(
+    form.ins_unidad
+  );
+
   return (
     <DashboardLayout>
       <div className="form-container">
@@ -223,22 +276,9 @@ export default function InsumoRegistrar() {
             )}
           </div>
 
-          {/* Cantidad inicial SIEMPRE 0 */}
-          <div className="form-group">
-            <label htmlFor="ins_cantidad">
-              Cantidad inicial (siempre 0 al registrar)
-            </label>
-            <input
-              id="ins_cantidad"
-              name="ins_cantidad"
-              type="number"
-              value={form.ins_cantidad}
-              readOnly
-            />
-            <small className="hint">
-              El stock se carga luego cuando registrás una compra.
-            </small>
-          </div>
+          {/* ✅ CANTIDAD INICIAL / STOCK ACTUAL YA NO SE MUESTRAN
+              (quedan siempre en 0 al registrar)
+           */}
 
           <div className="form-group">
             <label htmlFor="ins_capacidad">
@@ -248,32 +288,18 @@ export default function InsumoRegistrar() {
               id="ins_capacidad"
               name="ins_capacidad"
               type="number"
-              step="0.01"
-              min="0.01"
               value={form.ins_capacidad}
               onChange={onChange}
               onBlur={onBlur}
               required
+              min={capMin !== undefined ? capMin : undefined}
+              max={capMax !== undefined ? capMax : undefined}
+              step={capStep !== undefined ? capStep : "0.01"}
               placeholder="Ej. 6 (botellas por fardo, 2 kg por bolsa...)"
             />
             {errors.ins_capacidad && (
               <small className="field-error">{errors.ins_capacidad}</small>
             )}
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="ins_stock_actual">
-              Stock actual (inicia en 0, se actualiza con compras)
-            </label>
-            <input
-              id="ins_stock_actual"
-              name="ins_stock_actual"
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.ins_stock_actual}
-              readOnly // 👈 no se toca a mano
-            />
           </div>
 
           <div className="form-group">
@@ -456,6 +482,7 @@ const formStyles = `
     background-color: #4a4a4e;
   }
 `;
+
 
 
 

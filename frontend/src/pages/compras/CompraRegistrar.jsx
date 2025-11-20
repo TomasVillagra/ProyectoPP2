@@ -11,8 +11,18 @@ const toDec = (v) => {
   if (parts.length > 2) s = parts.shift() + "." + parts.join("");
   return s;
 };
+
+// 👉 NUEVO: solo enteros (sin decimales)
+const toInt = (v) => {
+  if (v === "" || v === null || v === undefined) return "";
+  // dejar solo dígitos 0-9
+  let s = String(v).replace(/[^\d]/g, "");
+  return s;
+};
+
 const blockInvalidDecimal = (e) => {
-  const bad = ["-", "+", "e", "E", " "];
+  // 👉 ahora también bloqueo el "." para que no se puedan escribir decimales
+  const bad = ["-", "+", "e", "E", " ", "."];
   if (bad.includes(e.key)) e.preventDefault();
 };
 const norm = (d) => (Array.isArray(d) ? d : d?.results || d?.data || []);
@@ -179,7 +189,11 @@ export default function CompraRegistrar() {
     const n = [...rows];
     n[i] = {
       ...n[i],
-      [k]: k.includes("cantidad") ? toDec(v) : v,
+      // 👉 cantidad SOLO ENTERA; el resto queda igual
+      [k]:
+        k === "detcom_cantidad"
+          ? toInt(v)
+          : v,
     };
 
     // si cambió el insumo: autocompletar precio con el guardado
@@ -273,7 +287,7 @@ export default function CompraRegistrar() {
         await api.post("/api/detalle-compras/", {
           id_compra: Number(compraId),
           id_insumo: pid,
-          detcom_cantidad: Number(r.detcom_cantidad),
+          detcom_cantidad: Number(r.detcom_cantidad), // 👉 ya viene entero
           detcom_precio_uni: Number(precio.toFixed(3)),
         });
       }
@@ -444,13 +458,13 @@ export default function CompraRegistrar() {
                     <td>
                       <input
                         type="text"
-                        inputMode="decimal"
+                        inputMode="numeric"
                         value={r.detcom_cantidad}
                         onChange={(e) =>
                           setRow(i, "detcom_cantidad", e.target.value)
                         }
                         onKeyDown={blockInvalidDecimal}
-                        placeholder="0.000"
+                        placeholder="0"
                         disabled={!cajaAbierta}
                       />
                     </td>
@@ -562,6 +576,7 @@ textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
 
 
 

@@ -730,16 +730,6 @@ export default function PedidosList() {
                             </Link>
                           )}
 
-                          {/* Agregar ítem sólo si NO está finalizado/cancelado */}
-                          {!terminal && (
-                            <button
-                              onClick={() => abrirAgregarItem(r)}
-                              className="btn btn-success"
-                              title="Agregar ítem"
-                            >
-                              ➕
-                            </button>
-                          )}
 
                           {/* Entregar sólo si NO está terminado ni entregado */}
                           {!terminal && !entregado && (
@@ -863,35 +853,73 @@ export default function PedidosList() {
       )}
 
       {/* Modal Cancelar */}
+      {/* Modal Cancelar */}
       {cancelOpen && (
         <div className="modal-overlay">
           <div className="modal-card">
-            <h3 style={{marginTop:0}}>Cancelar pedido #{cancelTarget?.id_pedido ?? cancelTarget?.id}</h3>
-            <p>Elegí cómo cancelar el pedido:</p>
-            <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
-              <button
-                className="btn btn-secondary"
-                onClick={async () => {
-                  await marcarCancelado(cancelTarget, false);
-                  setCancelOpen(false);
-                }}
-              >
-                Cancelar <b>sin</b> restar stock
-              </button>
-              <button
-                className="btn btn-danger"
-                onClick={async () => {
-                  await marcarCancelado(cancelTarget, true);
-                  setCancelOpen(false);
-                }}
-              >
-                Cancelar <b>restando</b> stock
-              </button>
-              <button className="btn" onClick={() => setCancelOpen(false)}>Cerrar</button>
-            </div>
+            <h3 style={{marginTop:0}}>
+              Cancelar pedido #{cancelTarget?.id_pedido ?? cancelTarget?.id}
+            </h3>
+
+            {cancelTarget && isEntregado(cancelTarget) ? (
+              <>
+                <p>
+                  Este pedido está <b>ENTREGADO</b>. Sólo se puede cancelar
+                  sin modificar el stock.
+                </p>
+                <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={async () => {
+                      await marcarCancelado(cancelTarget, false);
+                      setCancelOpen(false);
+                    }}
+                  >
+                    Cancelar (no modifica stock)
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => setCancelOpen(false)}
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p>Elegí cómo cancelar el pedido:</p>
+                <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={async () => {
+                      await marcarCancelado(cancelTarget, false);
+                      setCancelOpen(false);
+                    }}
+                  >
+                    Cancelar <b>sin</b> restar stock
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    onClick={async () => {
+                      await marcarCancelado(cancelTarget, true);
+                      setCancelOpen(false);
+                    }}
+                  >
+                    Cancelar <b>restando</b> stock
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => setCancelOpen(false)}
+                  >
+                    Cerrar
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
+
 
       <style>{styles}</style>
     </DashboardLayout>

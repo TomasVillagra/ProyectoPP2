@@ -9,6 +9,7 @@ from pizzeria.api.views import (
     CategoriaPlatoViewSet,EstadoRecetaViewSet,DetallePedidoViewSet,EstadoCompraViewSet,CompraViewSet,DetalleCompraViewSet,
     CompraViewSet,DetalleCompraViewSet,ProveedorInsumoViewSet,EstadoMesasViewSet,MesasViewSet,
     EstadoVentaViewSet,DetalleVentaViewSet,CajaEstadoView,CajaHistorialView,CajaHistorialDetalleView,CajaIngresosSemanalesView,
+    CategoriaProveedorViewSet,
 )
 
 router = DefaultRouter()

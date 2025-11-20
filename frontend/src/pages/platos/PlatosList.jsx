@@ -303,6 +303,16 @@ export default function PlatosList() {
   const [prodMsg, setProdMsg] = useState("");
   const [producing, setProducing] = useState(false);
 
+  // modal "Agregar categoría"
+  const [showCatModal, setShowCatModal] = useState(false);
+  const [catName, setCatName] = useState("");
+  const [catError, setCatError] = useState("");
+  const [savingCat, setSavingCat] = useState(false);
+
+  // paginación data table
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
   const fetchCategorias = async () => {
     try {
       const res = await api.get("/api/categorias-plato/");
@@ -438,6 +448,23 @@ export default function PlatosList() {
     });
   }, [data, qNombre, fCategoria, fEstado]);
 
+  // resetear página cuando cambian filtros/datos
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [qNombre, fCategoria, fEstado, data.length]);
+
+  // datos paginados (data table)
+  const totalItems = filteredData.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+  const pageRows = filteredData.slice(startIndex, endIndex);
+
+  const goToPage = (page) => {
+    if (page < 1 || page > totalPages) return;
+    setCurrentPage(page);
+  };
+
   /* ================================================================
      Flujo “Cargar stock” (producir)
      ================================================================ */
@@ -503,6 +530,61 @@ export default function PlatosList() {
     }
   };
 
+  /* ================== Crear categoría (botón + modal) ================== */
+  const normalizarNombre = (s) =>
+    (s || "").toLowerCase().replace(/\s+/g, "");
+
+  const abrirAgregarCategoria = () => {
+    setCatName("");
+    setCatError("");
+    setShowCatModal(true);
+  };
+
+  const guardarCategoria = async () => {
+    const nombre = catName.trim();
+    setCatError("");
+    if (!nombre) {
+      setCatError("El nombre es obligatorio.");
+      return;
+    }
+
+    const buscado = normalizarNombre(nombre);
+    const existe = categorias.some((c) => {
+      const n =
+        c.catplt_nombre ??
+        c.categoria_nombre ??
+        c.cat_nombre ??
+        c.nombre ??
+        "";
+      return normalizarNombre(n) === buscado;
+    });
+
+    if (existe) {
+      setCatError("Ya existe una categoría con ese nombre.");
+      return;
+    }
+
+    try {
+      setSavingCat(true);
+      await api.post("/api/categorias-plato/", {
+        catplt_nombre: nombre,
+      });
+      await fetchCategorias();
+      setShowCatModal(false);
+      setCatName("");
+      setCatError("");
+    } catch (e) {
+      console.error(e);
+      const detail =
+        e?.response?.data?.detail ||
+        e?.response?.data?.mensaje ||
+        e?.response?.data?.error;
+      setCatError(detail || "No se pudo crear la categoría.");
+    } finally {
+      setSavingCat(false);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div
@@ -515,8 +597,11 @@ export default function PlatosList() {
       >
         <h2 style={{ margin: 0, color: "#fff" }}>Platos</h2>
         <div style={{ display: "flex", gap: 8 }}>
-          {/* Botón que pediste, lo dejamos visible (sin lógica de modal para evitar errores) */}
-          <button className="btn btn-secondary" type="button">
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={abrirAgregarCategoria}
+          >
             Agregar categoría
           </button>
           <Link to="/platos/registrar" className="btn btn-primary">
@@ -601,112 +686,164 @@ export default function PlatosList() {
       {loading ? (
         <p>Cargando...</p>
       ) : (
-        <div className="table-wrap">
-          <table className="table-dark">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Nombre</th>
-                <th>Precio</th>
-                <th>Stock</th>
-                <th>Categoría</th>
-                <th>Estado</th>
-                <th style={{ width: 420 }}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredData.length === 0 && (
+        <>
+          <div className="table-wrap">
+            <table className="table-dark">
+              <thead>
                 <tr>
-                  <td colSpan="7" style={{ textAlign: "center" }}>
-                    Sin registros
-                  </td>
+                  <th>ID</th>
+                  <th>Nombre</th>
+                  <th>Precio</th>
+                  <th>Stock</th>
+                  <th>Categoría</th>
+                  <th>Estado</th>
+                  <th style={{ width: 420 }}>Acciones</th>
                 </tr>
-              )}
-              {filteredData.map((r, idx) => {
-                const idPlato = r.id_plato ?? r.id ?? idx;
-                const id = idPlato;
-                const nombre =
-                  r.pla_nombre ??
-                  r.plt_nombre ??
-                  r.nombre ??
-                  "(sin nombre)";
-                const precio =
-                  r.pla_precio ?? r.plt_precio ?? r.precio ?? 0;
-                const stock =
-                  r.plt_stock ??
-                  r.pla_stock ??
-                  r.stock ??
-                  r.stock_actual ??
-                  "-";
-
-                let categoriaNombre =
-                  r.categoria_nombre ?? r.cat_nombre ?? null;
-                if (
-                  !categoriaNombre &&
-                  r.categoria &&
-                  typeof r.categoria === "object"
-                ) {
-                  categoriaNombre =
-                    r.categoria.nombre ??
-                    r.categoria.cat_nombre ??
-                    r.categoria.categoria_nombre ??
-                    null;
-                }
-                const categoriaId =
-                  r.id_categoria_plato ??
-                  r.id_categoria ??
-                  r.categoria_id ??
-                  (r.categoria && typeof r.categoria === "object"
-                    ? r.categoria.id ?? r.categoria.id_categoria
-                    : null);
-
-                const categoria =
-                  categoriaNombre ??
-                  (categoriaId != null
-                    ? catMap[categoriaId] || `#${categoriaId}`
-                    : "-");
-
-                const idEstado = String(
-                  r.id_estado_plato ??
-                    r.id_estado ??
-                    r.estado ??
-                    "1"
-                );
-                const estadoNombre =
-                  r.estado_nombre ||
-                  (idEstado === "1" ? "Activo" : "Inactivo");
-                const recetaId = recetaPorPlato[Number(idPlato)];
-
-                return (
-                  <tr key={id}>
-                    <td>{id}</td>
-                    <td>{nombre}</td>
-                    <td>{Number(precio).toFixed(2)}</td>
-                    <td>{stock}</td>
-                    <td>{categoria}</td>
-                    <td>{estadoNombre}</td>
-                    <td style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <Link to={`/platos/${id}/editar`} className="btn btn-secondary">
-                      Editar
-                    </Link>
-                    <button onClick={() => toggleEstado(r)} className="btn btn-danger">
-                      {idEstado === "1" ? "Desactivar" : "Activar"}
-                    </button>
-                    <button className="btn btn-primary" onClick={() => abrirCargarStock(r)}>
-                      Cargar stock
-                    </button>
-                    {/* NUEVO: ir a ver la receta de este plato */}
-                    <Link to={`/platos/${id}/receta`} className="btn btn-secondary">
-                      Ver receta
-                    </Link>
-                  </td>
-
+              </thead>
+              <tbody>
+                {pageRows.length === 0 && (
+                  <tr>
+                    <td colSpan="7" style={{ textAlign: "center" }}>
+                      Sin registros
+                    </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                )}
+                {pageRows.map((r, idx) => {
+                  const idPlato = r.id_plato ?? r.id ?? idx;
+                  const id = idPlato;
+                  const nombre =
+                    r.pla_nombre ??
+                    r.plt_nombre ??
+                    r.nombre ??
+                    "(sin nombre)";
+                  const precio =
+                    r.pla_precio ?? r.plt_precio ?? r.precio ?? 0;
+                  const stock =
+                    r.plt_stock ??
+                    r.pla_stock ??
+                    r.stock ??
+                    r.stock_actual ??
+                    "-";
+
+                  let categoriaNombre =
+                    r.categoria_nombre ?? r.cat_nombre ?? null;
+                  if (
+                    !categoriaNombre &&
+                    r.categoria &&
+                    typeof r.categoria === "object"
+                  ) {
+                    categoriaNombre =
+                      r.categoria.nombre ??
+                      r.categoria.cat_nombre ??
+                      r.categoria.categoria_nombre ??
+                      null;
+                  }
+                  const categoriaId =
+                    r.id_categoria_plato ??
+                    r.id_categoria ??
+                    r.categoria_id ??
+                    (r.categoria && typeof r.categoria === "object"
+                      ? r.categoria.id ?? r.categoria.id_categoria
+                      : null);
+
+                  const categoria =
+                    categoriaNombre ??
+                    (categoriaId != null
+                      ? catMap[categoriaId] || `#${categoriaId}`
+                      : "-");
+
+                  const idEstado = String(
+                    r.id_estado_plato ??
+                      r.id_estado ??
+                      r.estado ??
+                      "1"
+                  );
+                  const estadoNombre =
+                    r.estado_nombre ||
+                    (idEstado === "1" ? "Activo" : "Inactivo");
+                  const recetaId = recetaPorPlato[Number(idPlato)];
+
+                  return (
+                    <tr key={id}>
+                      <td>{id}</td>
+                      <td>{nombre}</td>
+                      <td>{Number(precio).toFixed(2)}</td>
+                      <td>{stock}</td>
+                      <td>{categoria}</td>
+                      <td>{estadoNombre}</td>
+                      <td
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <Link
+                          to={`/platos/${id}/editar`}
+                          className="btn btn-secondary"
+                        >
+                          Editar
+                        </Link>
+                        <button
+                          onClick={() => toggleEstado(r)}
+                          className="btn btn-danger"
+                        >
+                          {idEstado === "1" ? "Desactivar" : "Activar"}
+                        </button>
+                        <button
+                          className="btn btn-primary"
+                          onClick={() => abrirCargarStock(r)}
+                        >
+                          Cargar stock
+                        </button>
+                        {/* Ver receta del plato */}
+                        <Link
+                          to={`/platos/${id}/receta`}
+                          className="btn btn-secondary"
+                        >
+                          Ver receta
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Controles de paginación tipo data table */}
+          {totalItems > 0 && (
+            <div className="pagination-wrap">
+              <div className="pagination-info">
+                Mostrando{" "}
+                <strong>{totalItems === 0 ? 0 : startIndex + 1}</strong>–
+                <strong>{endIndex}</strong> de{" "}
+                <strong>{totalItems}</strong> platos
+              </div>
+              <div className="pagination-controls">
+                <button
+                  className="btn btn-secondary btn-sm"
+                  type="button"
+                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                >
+                  Anterior
+                </button>
+                <span className="pagination-page">
+                  Página {currentPage} de {totalPages}
+                </span>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  type="button"
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Modal para producir (cargar stock) */}
@@ -783,19 +920,107 @@ export default function PlatosList() {
         </div>
       )}
 
+      {/* Modal para AGREGAR CATEGORÍA */}
+      {showCatModal && (
+        <div
+          style={modal.backdrop}
+          onClick={() => !savingCat && setShowCatModal(false)}
+        >
+          <div
+            style={modal.card}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ marginTop: 0 }}>Agregar categoría de plato</h3>
+            <p
+              style={{
+                margin: "6px 0 12px",
+                color: "#d1d5db",
+              }}
+            >
+              Ingresá el nombre de la categoría. No se permiten nombres repetidos.
+            </p>
+            <input
+              type="text"
+              placeholder="Ej. Pizzas especiales"
+              value={catName}
+              onChange={(e) => setCatName(e.target.value)}
+              style={modal.input}
+              disabled={savingCat}
+            />
+            {catError && (
+              <div
+                style={{
+                  marginTop: 8,
+                  color: "#fca5a5",
+                  fontSize: ".9rem",
+                }}
+              >
+                {catError}
+              </div>
+            )}
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                justifyContent: "flex-end",
+                marginTop: 12,
+              }}
+            >
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowCatModal(false)}
+                disabled={savingCat}
+              >
+                Cancelar
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={guardarCategoria}
+                disabled={savingCat}
+              >
+                {savingCat ? "Guardando..." : "Guardar categoría"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{styles}</style>
     </DashboardLayout>
   );
 }
 
 const styles = `
-.table-wrap { overflow:auto; }
+.table-wrap { overflow:auto; margin-top: 8px; }
 .table-dark { width:100%; border-collapse: collapse; background:#121212; color:#eaeaea; }
 .table-dark th, .table-dark td { border:1px solid #232323; padding:10px; }
 .btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 .btn-danger { background:#ef4444; color:#fff; border-color:#ef4444; }
+.btn-sm { padding:6px 10px; font-size:12px; }
+
+.pagination-wrap {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+.pagination-info {
+  font-size: 13px;
+  color: #d4d4d8;
+}
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pagination-page {
+  font-size: 13px;
+  color: #e4e4e7;
+}
 `;
 
 const modal = {
@@ -837,6 +1062,10 @@ const modal = {
     whiteSpace: "pre-wrap",
   },
 };
+
+
+
+
 
 
 

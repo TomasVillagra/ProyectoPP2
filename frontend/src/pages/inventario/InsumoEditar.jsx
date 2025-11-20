@@ -3,11 +3,29 @@ import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 
-const ESTADOS = [ { id: 1, label: "Activo" }, { id: 2, label: "Inactivo" } ];
+const ESTADOS = [{ id: 1, label: "Activo" }, { id: 2, label: "Inactivo" }];
 const UNIDADES = ["u", "kg", "g", "l", "ml"];
 
-// 👉 helper nuevo para normalizar (ignorar mayúsculas y espacios)
+// 👉 helper para normalizar (ignorar mayúsculas y espacios)
 const normalizeName = (s) => (s || "").toLowerCase().replace(/\s+/g, "");
+
+// 👉 helper para límites de capacidad según unidad
+const getCapacidadConstraints = (unidad) => {
+  switch (unidad) {
+    case "kg":
+      return { min: 1, max: 60, step: 0.01 };
+    case "g":
+      return { min: 100, max: 100000, step: 1 };
+    case "u":
+      return { min: 1, max: 100, step: 1 };
+    case "l":
+      return { min: 1, max: 60, step: 0.01 };
+    case "ml":
+      return { min: 100, max: 100000, step: 1 };
+    default:
+      return { min: 0.01, max: undefined, step: 0.01 };
+  }
+};
 
 export default function InsumoEditar() {
   const { id } = useParams();
@@ -16,30 +34,30 @@ export default function InsumoEditar() {
   const [form, setForm] = useState({
     ins_nombre: "",
     ins_unidad: "",
-    ins_cantidad: "",      // NUEVO
-    ins_capacidad: "",     // NUEVO
-    ins_stock_actual: "",
+    ins_cantidad: "", // se mantiene en estado pero NO se edita ni se muestra
+    ins_capacidad: "",
+    ins_stock_actual: "", // idem
     ins_punto_reposicion: "",
     ins_stock_min: "",
     ins_stock_max: "",
     id_estado_insumo: "1",
   });
   const [errors, setErrors] = useState({});
-  const [originalName, setOriginalName] = useState(""); // ← para permitir el mismo nombre
+  const [originalName, setOriginalName] = useState(""); // para permitir el mismo nombre
 
-  const num = (v) => (v === "" || v === null || v === undefined ? null : Number(v));
+  const num = (v) =>
+    v === "" || v === null || v === undefined ? null : Number(v);
 
   const validate = (values) => {
     const e = {};
     const nombre = (values.ins_nombre || "").trim();
     const unidad = (values.ins_unidad || "").trim();
 
-    const cantidad   = num(values.ins_cantidad);
-    const capacidad  = num(values.ins_capacidad);
+    const capacidad = num(values.ins_capacidad);
     const stockActual = num(values.ins_stock_actual);
-    const puntoRepo   = num(values.ins_punto_reposicion);
-    const stockMin    = num(values.ins_stock_min);
-    const stockMax    = num(values.ins_stock_max);
+    const puntoRepo = num(values.ins_punto_reposicion);
+    const stockMin = num(values.ins_stock_min);
+    const stockMax = num(values.ins_stock_max);
 
     if (!nombre) e.ins_nombre = "El nombre es obligatorio.";
 
@@ -49,66 +67,113 @@ export default function InsumoEditar() {
       e.ins_unidad = "Elegí una unidad válida (u, kg, g, l, ml).";
     }
 
-    // 👉 Validar cantidad y capacidad (aunque no se puedan editar, deben ser válidas)
-    if (cantidad === null) e.ins_cantidad = "La cantidad es obligatoria.";
-    else if (isNaN(cantidad) || cantidad <= 0) e.ins_cantidad = "Debe ser mayor a 0.";
+    // ▶ Validar capacidad según unidad
+    if (capacidad === null) {
+      e.ins_capacidad = "La capacidad es obligatoria.";
+    } else if (isNaN(capacidad)) {
+      e.ins_capacidad = "La capacidad debe ser un número.";
+    } else if (unidad) {
+      const { min, max } = getCapacidadConstraints(unidad);
 
-    if (capacidad === null) e.ins_capacidad = "La capacidad es obligatoria.";
-    else if (isNaN(capacidad) || capacidad <= 0) e.ins_capacidad = "Debe ser mayor a 0.";
-
-    if (stockActual === null) e.ins_stock_actual = "El stock actual es obligatorio.";
-    else if (isNaN(stockActual) || stockActual < 0) e.ins_stock_actual = "No puede ser negativo.";
-
-    if (puntoRepo === null) e.ins_punto_reposicion = "El punto de reposición es obligatorio.";
-    else if (isNaN(puntoRepo) || puntoRepo < 0) e.ins_punto_reposicion = "No puede ser negativo.";
-
-    if (stockMin === null) e.ins_stock_min = "El stock mínimo es obligatorio.";
-    else if (isNaN(stockMin) || stockMin < 0) e.ins_stock_min = "No puede ser negativo.";
-
-    if (values.ins_stock_max !== "" && values.ins_stock_max !== null) {
-      if (stockMax === null || isNaN(stockMax)) e.ins_stock_max = "Debe ser un número.";
-      else if (stockMax < 0) e.ins_stock_max = "No puede ser negativo.";
-      else if (stockMin !== null && !e.ins_stock_min && stockMin > stockMax)
-        e.ins_stock_min = "El mínimo no puede superar al máximo.";
-    }
-
-    if (puntoRepo !== null && !isNaN(puntoRepo)) {
-      if (stockMin !== null && !isNaN(stockMin) && puntoRepo < stockMin) {
-        e.ins_punto_reposicion = "Debe ser ≥ al stock mínimo.";
+      if (min !== undefined && capacidad < min) {
+        e.ins_capacidad = `La capacidad mínima para ${unidad} es ${min}.`;
+      } else if (max !== undefined && capacidad > max) {
+        e.ins_capacidad = `La capacidad máxima para ${unidad} es ${max}.`;
       }
-      if (values.ins_stock_max !== "" && stockMax !== null && !isNaN(stockMax) && puntoRepo > stockMax) {
-        e.ins_punto_reposicion = "Debe ser ≤ al stock máximo.";
+
+      if (unidad === "u" && !Number.isInteger(capacidad)) {
+        e.ins_capacidad = "Para unidad 'u' la capacidad debe ser un número entero.";
       }
     }
-    if (values.ins_stock_max !== "" && stockMax !== null && !isNaN(stockMax) && stockActual !== null && !isNaN(stockActual)) {
-      if (stockActual > stockMax) e.ins_stock_actual = "El stock actual no puede superar al stock máximo.";
+
+    // ▶ Punto de reposición / stock min / stock max (obligatorios)
+    if (puntoRepo === null) {
+      e.ins_punto_reposicion = "El punto de reposición es obligatorio.";
+    } else if (isNaN(puntoRepo) || puntoRepo < 0) {
+      e.ins_punto_reposicion = "No puede ser negativo.";
+    }
+
+    if (stockMin === null) {
+      e.ins_stock_min = "El stock mínimo es obligatorio.";
+    } else if (isNaN(stockMin) || stockMin < 0) {
+      e.ins_stock_min = "No puede ser negativo.";
+    }
+
+    if (stockMax === null) {
+      e.ins_stock_max = "El stock máximo es obligatorio.";
+    } else if (isNaN(stockMax) || stockMax < 0) {
+      e.ins_stock_max = "No puede ser negativo.";
+    }
+
+    // ▶ Orden estricto:
+    // stock_min < stock_max
+    // stock_min < punto_repo < stock_max
+    if (
+      stockMin !== null &&
+      stockMax !== null &&
+      !isNaN(stockMin) &&
+      !isNaN(stockMax)
+    ) {
+      if (!(stockMin < stockMax)) {
+        e.ins_stock_min = "El stock mínimo debe ser menor que el stock máximo.";
+        e.ins_stock_max = "El stock máximo debe ser mayor que el stock mínimo.";
+      }
+    }
+
+    if (
+      stockMin !== null &&
+      stockMax !== null &&
+      puntoRepo !== null &&
+      !isNaN(stockMin) &&
+      !isNaN(stockMax) &&
+      !isNaN(puntoRepo)
+    ) {
+      if (!(stockMin < puntoRepo && puntoRepo < stockMax)) {
+        if (puntoRepo <= stockMin) {
+          e.ins_punto_reposicion =
+            "El punto de reposición debe ser mayor que el stock mínimo.";
+        } else if (puntoRepo >= stockMax) {
+          e.ins_punto_reposicion =
+            "El punto de reposición debe ser menor que el stock máximo.";
+        }
+      }
+    }
+
+    // (Opcional) validación de stock_actual
+    if (
+      stockActual !== null &&
+      !isNaN(stockActual) &&
+      stockActual < 0
+    ) {
+      e.ins_stock_actual = "El stock actual no puede ser negativo.";
     }
 
     return e;
   };
 
+
   useEffect(() => {
-    api.get(`/api/insumos/${id}/`).then(({ data }) => {
-      setForm({
-        ins_nombre: data.ins_nombre ?? "",
-        ins_unidad: data.ins_unidad ?? "",
-        ins_cantidad: data.ins_cantidad ?? "",       // NUEVO
-        ins_capacidad: data.ins_capacidad ?? "",     // NUEVO
-        ins_stock_actual: data.ins_stock_actual ?? "",
-        ins_punto_reposicion: data.ins_punto_reposicion ?? "",
-        ins_stock_min: data.ins_stock_min ?? "",
-        ins_stock_max: data.ins_stock_max ?? "",
-        id_estado_insumo: String(data.id_estado_insumo ?? 1),
-      });
-      setOriginalName(data.ins_nombre ?? ""); // ← guardo el original
-    }).catch((e) => console.error(e));
+    api
+      .get(`/api/insumos/${id}/`)
+      .then(({ data }) => {
+        setForm({
+          ins_nombre: data.ins_nombre ?? "",
+          ins_unidad: data.ins_unidad ?? "",
+          ins_cantidad: data.ins_cantidad ?? "",
+          ins_capacidad: data.ins_capacidad ?? "",
+          ins_stock_actual: data.ins_stock_actual ?? "",
+          ins_punto_reposicion: data.ins_punto_reposicion ?? "",
+          ins_stock_min: data.ins_stock_min ?? "",
+          ins_stock_max: data.ins_stock_max ?? "",
+          id_estado_insumo: String(data.id_estado_insumo ?? 1),
+        });
+        setOriginalName(data.ins_nombre ?? "");
+      })
+      .catch((e) => console.error(e));
   }, [id]);
 
   const onChange = (e) => {
     const { name, value } = e.target;
-    // 📝 OJO:
-    // - No llamamos onChange desde "Cantidad" ni "Stock actual"
-    //   porque esos campos estarán deshabilitados/readOnly.
     setForm((f) => ({ ...f, [name]: value }));
   };
 
@@ -128,11 +193,22 @@ export default function InsumoEditar() {
     {
       const wanted = normalizeName(form.ins_nombre);
       const original = normalizeName(originalName);
-      const { data } = await api.get(`/api/insumos/?search=${encodeURIComponent(form.ins_nombre)}`);
-      const list = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
-      const duplicated = list.some(it => normalizeName(it.ins_nombre) === wanted);
+      const { data } = await api.get(
+        `/api/insumos/?search=${encodeURIComponent(form.ins_nombre)}`
+      );
+      const list = Array.isArray(data?.results)
+        ? data.results
+        : Array.isArray(data)
+        ? data
+        : [];
+      const duplicated = list.some(
+        (it) => normalizeName(it.ins_nombre) === wanted
+      );
       if (duplicated && wanted !== original) {
-        setErrors(prev => ({ ...prev, ins_nombre: "Ya existe un insumo con ese nombre." }));
+        setErrors((prev) => ({
+          ...prev,
+          ins_nombre: "Ya existe un insumo con ese nombre.",
+        }));
         return;
       }
     }
@@ -141,12 +217,24 @@ export default function InsumoEditar() {
       await api.put(`/api/insumos/${id}/`, {
         ...form,
         id_estado_insumo: Number(form.id_estado_insumo),
-        ins_cantidad: form.ins_cantidad ? Number(form.ins_cantidad) : null,
-        ins_capacidad: form.ins_capacidad ? Number(form.ins_capacidad) : null,
-        ins_stock_actual: form.ins_stock_actual ? Number(form.ins_stock_actual) : 0,
-        ins_punto_reposicion: form.ins_punto_reposicion ? Number(form.ins_punto_reposicion) : 0,
-        ins_stock_min: form.ins_stock_min ? Number(form.ins_stock_min) : 0,
-        ins_stock_max: form.ins_stock_max === "" ? null : Number(form.ins_stock_max),
+        // cantidad y stock_actual se mandan tal como están, pero no los puede tocar el usuario
+        ins_cantidad: form.ins_cantidad
+          ? Number(form.ins_cantidad)
+          : null,
+        ins_capacidad: form.ins_capacidad
+          ? Number(form.ins_capacidad)
+          : null,
+        ins_stock_actual: form.ins_stock_actual
+          ? Number(form.ins_stock_actual)
+          : 0,
+        ins_punto_reposicion: form.ins_punto_reposicion
+          ? Number(form.ins_punto_reposicion)
+          : 0,
+        ins_stock_min: form.ins_stock_min
+          ? Number(form.ins_stock_min)
+          : 0,
+        ins_stock_max:
+          form.ins_stock_max === "" ? null : Number(form.ins_stock_max),
       });
       setMsg("Insumo actualizado correctamente ✅");
       setTimeout(() => navigate("/inventario"), 1200);
@@ -156,7 +244,11 @@ export default function InsumoEditar() {
     }
   };
 
-  const valueUnidad = UNIDADES.includes(form.ins_unidad) ? form.ins_unidad : "";
+  const valueUnidad = UNIDADES.includes(form.ins_unidad)
+    ? form.ins_unidad
+    : "";
+  const { min: capMin, max: capMax, step: capStep } =
+    getCapacidadConstraints(valueUnidad);
 
   return (
     <DashboardLayout>
@@ -167,8 +259,17 @@ export default function InsumoEditar() {
         <form onSubmit={onSubmit} className="form">
           <div className="form-group">
             <label htmlFor="ins_nombre">Nombre</label>
-            <input id="ins_nombre" name="ins_nombre" value={form.ins_nombre} onChange={onChange} onBlur={onBlur} required />
-            {errors.ins_nombre && <small className="field-error">{errors.ins_nombre}</small>}
+            <input
+              id="ins_nombre"
+              name="ins_nombre"
+              value={form.ins_nombre}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+            />
+            {errors.ins_nombre && (
+              <small className="field-error">{errors.ins_nombre}</small>
+            )}
           </div>
 
           <div className="form-group">
@@ -187,28 +288,18 @@ export default function InsumoEditar() {
                 </option>
               )}
               <option value="">-- Seleccioná --</option>
-              {UNIDADES.map(u => (
-                <option key={u} value={u}>{u}</option>
+              {UNIDADES.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
               ))}
             </select>
-            {errors.ins_unidad && <small className="field-error">{errors.ins_unidad}</small>}
+            {errors.ins_unidad && (
+              <small className="field-error">{errors.ins_unidad}</small>
+            )}
           </div>
 
-          {/* NUEVOS CAMPOS */}
-          <div className="form-group">
-            <label htmlFor="ins_cantidad">Cantidad (n° de unidades compradas)</label>
-            <input
-              id="ins_cantidad"
-              name="ins_cantidad"
-              type="number"
-              step="0.01"
-              min="0.01"
-              value={form.ins_cantidad}
-              readOnly
-              disabled  // 👈 no se puede editar
-            />
-            {errors.ins_cantidad && <small className="field-error">{errors.ins_cantidad}</small>}
-          </div>
+          {/* ❌ Ya no mostramos ins_cantidad ni ins_stock_actual */}
 
           <div className="form-group">
             <label htmlFor="ins_capacidad">
@@ -218,68 +309,105 @@ export default function InsumoEditar() {
               id="ins_capacidad"
               name="ins_capacidad"
               type="number"
-              step="0.01"
-              min="0.01"
               value={form.ins_capacidad}
               onChange={onChange}
               onBlur={onBlur}
               required
+              min={capMin !== undefined ? capMin : undefined}
+              max={capMax !== undefined ? capMax : undefined}
+              step={capStep !== undefined ? capStep : "0.01"}
             />
-            {errors.ins_capacidad && <small className="field-error">{errors.ins_capacidad}</small>}
+            {errors.ins_capacidad && (
+              <small className="field-error">{errors.ins_capacidad}</small>
+            )}
           </div>
 
           <div className="form-group">
-            <label htmlFor="ins_stock_actual">Stock actual</label>
+            <label htmlFor="ins_punto_reposicion">
+              Punto de reposición
+            </label>
             <input
-              id="ins_stock_actual"
-              name="ins_stock_actual"
+              id="ins_punto_reposicion"
+              name="ins_punto_reposicion"
               type="number"
               step="0.01"
               min="0"
-              value={form.ins_stock_actual}
-              readOnly
-              disabled  // 👈 tampoco se puede editar
+              value={form.ins_punto_reposicion}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
             />
-            {errors.ins_stock_actual && <small className="field-error">{errors.ins_stock_actual}</small>}
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="ins_punto_reposicion">Punto de reposición</label>
-            <input
-              id="ins_punto_reposicion" name="ins_punto_reposicion" type="number" step="0.01" min="0"
-              value={form.ins_punto_reposicion} onChange={onChange} onBlur={onBlur} required
-            />
-            {errors.ins_punto_reposicion && <small className="field-error">{errors.ins_punto_reposicion}</small>}
+            {errors.ins_punto_reposicion && (
+              <small className="field-error">
+                {errors.ins_punto_reposicion}
+              </small>
+            )}
           </div>
 
           <div className="form-group">
             <label htmlFor="ins_stock_min">Stock mínimo</label>
             <input
-              id="ins_stock_min" name="ins_stock_min" type="number" step="0.01" min="0"
-              value={form.ins_stock_min} onChange={onChange} onBlur={onBlur} required
+              id="ins_stock_min"
+              name="ins_stock_min"
+              type="number"
+              step="0.01"
+              min="0"
+              value={form.ins_stock_min}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
             />
-            {errors.ins_stock_min && <small className="field-error">{errors.ins_stock_min}</small>}
+            {errors.ins_stock_min && (
+              <small className="field-error">{errors.ins_stock_min}</small>
+            )}
           </div>
 
           <div className="form-group">
-            <label htmlFor="ins_stock_max">Stock máximo </label>
+            <label htmlFor="ins_stock_max">Stock máximo</label>
             <input
-              id="ins_stock_max" name="ins_stock_max" type="number" step="0.01" min="0"
-              value={form.ins_stock_max} onChange={onChange} onBlur={onBlur}
+              id="ins_stock_max"
+              name="ins_stock_max"
+              type="number"
+              step="0.01"
+              min="0"
+              value={form.ins_stock_max}
+              onChange={onChange}
+              onBlur={onBlur}
             />
-            {errors.ins_stock_max && <small className="field-error">{errors.ins_stock_max}</small>}
+            {errors.ins_stock_max && (
+              <small className="field-error">{errors.ins_stock_max}</small>
+            )}
           </div>
 
           <div className="form-group">
             <label htmlFor="id_estado_insumo">Estado</label>
-            <select id="id_estado_insumo" name="id_estado_insumo" value={form.id_estado_insumo} onChange={onChange} onBlur={onBlur} required>
-              {ESTADOS.map((e) => (<option key={e.id} value={e.id}>{e.label}</option>))}
+            <select
+              id="id_estado_insumo"
+              name="id_estado_insumo"
+              value={form.id_estado_insumo}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+            >
+              {ESTADOS.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.label}
+                </option>
+              ))}
             </select>
           </div>
 
           <div className="form-actions">
-            <button type="submit" className="btn btn-primary">Guardar Cambios</button>
-            <button type="button" className="btn btn-secondary" onClick={() => navigate("/inventario")}>Cancelar</button>
+            <button type="submit" className="btn btn-primary">
+              Guardar Cambios
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => navigate("/inventario")}
+            >
+              Cancelar
+            </button>
           </div>
         </form>
       </div>
@@ -310,7 +438,7 @@ const formStyles = `
   .form {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 20px.
+    gap: 20px;
   }
   .form-group {
     display: flex;
@@ -366,4 +494,5 @@ const formStyles = `
     background-color: #4a4a4e;
   }
 `;
+
 
