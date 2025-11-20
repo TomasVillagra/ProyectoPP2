@@ -24,7 +24,7 @@ from pizzeria.models import (
     Proveedores, EstadoProveedores, CategoriaProveedores,
     Recetas, DetalleRecetas, CategoriaPlatos, EstadoReceta,
     DetallePedidos, Mesas, EstadoCompra, DetalleCompra, Compras,ProveedoresXInsumos,EstadoMesas,
-    EstadoVentas,DetalleVentas
+    EstadoVentas,DetalleVentas,
 )
 
 from .serializers import (
@@ -217,7 +217,63 @@ class PlatoViewSet(ModelViewSet):
     queryset = Platos.objects.all().order_by("-id_plato")
     serializer_class = PlatoSerializer
     permission_classes = [IsAuthenticated]
-    
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        """
+        Cuando se crea un plato, se crea automáticamente una receta vacía
+        vinculada a ese plato. El nombre de la receta queda igual al nombre del plato.
+        """
+        # Primero creamos el plato normalmente
+        response = super().create(request, *args, **kwargs)
+
+        # Intentar obtener el id del plato recién creado
+        plato_id = response.data.get("id_plato") or response.data.get("id")
+        if not plato_id:
+            return response
+
+        plato = Platos.objects.filter(pk=plato_id).first()
+        if not plato:
+            return response
+
+        # Si ya tiene receta, no duplicamos
+        if Recetas.objects.filter(id_plato=plato).exists():
+            return response
+
+        # Nombre del plato (tolerando distintos nombres de campo)
+        nombre_plato = (
+            getattr(plato, "pla_nombre", None)
+            or getattr(plato, "plt_nombre", None)
+            or getattr(plato, "nombre", None)
+            or f"Receta del plato {plato_id}"
+        )
+
+        # Estado por defecto: Activo (id_estado_receta = 1) o el primero que exista
+        estado = (
+            EstadoReceta.objects.filter(id_estado_receta=1).first()
+            or EstadoReceta.objects.first()
+        )
+
+        # Armamos el cuerpo tal como lo espera el serializer de recetas
+        receta_data = {
+            "rec_nombre": nombre_plato,
+            "rec_desc": "",
+            "id_plato": plato.id_plato,  # ID numérico
+        }
+        if estado:
+            receta_data["id_estado_receta"] = estado.id_estado_receta
+
+        try:
+            ser = RecetaSerializer(data=receta_data)
+            ser.is_valid(raise_exception=True)
+            ser.save()
+        except Exception as e:
+            # Si falla la creación de receta NO rompemos la creación del plato
+            print("Error creando receta automática para el plato:", e)
+
+        return response
+
+    # …desde acá para abajo dejá TODO igual como lo tenías…
     @action(detail=True, methods=["post"])
     def producir(self, request, pk=None):
         try:
@@ -228,13 +284,6 @@ class PlatoViewSet(ModelViewSet):
             return Response({"detail": "Cantidad debe ser > 0."}, status=400)
 
         plato = self.get_object()
-
-        # >>> TODO: ajustá nombres reales de tus modelos/campos:
-        # Recetas, DetalleReceta, campo "detr_cant_unid", stock de insumos ("ins_stock_actual")
-        # y stock de plato ("plt_stock" o similar). Este es el esqueleto:
-
-        from ..models import Recetas, DetalleRecetas, Insumos 
-
 
         receta = Recetas.objects.filter(id_plato=plato).first()
         if not receta:
@@ -254,8 +303,11 @@ class PlatoViewSet(ModelViewSet):
 
             if disp - req < 0:
                 return Response(
-                    {"detail": f"Insumo insuficiente: {ins.ins_nombre}. Requiere {req}, disponible {disp}."},
-                    status=400
+                    {
+                        "detail": f"Insumo insuficiente: {ins.ins_nombre}. "
+                                  f"Requiere {req}, disponible {disp}."
+                    },
+                    status=400,
                 )
             requeridos.append((ins, req, disp))
 
@@ -263,15 +315,18 @@ class PlatoViewSet(ModelViewSet):
             # Descontar insumos
             for ins, req, disp in requeridos:
                 nuevo = disp - req
-                ins.ins_stock_actual = nuevo  # ajustá si tu campo es otro
+                ins.ins_stock_actual = nuevo
                 ins.save(update_fields=["ins_stock_actual"])
 
             # Sumar stock del plato
             stock_actual = Decimal(getattr(plato, "plt_stock", 0) or 0)
-            setattr(plato, "plt_stock", stock_actual + cantidad)  # ajustá si tu campo es otro
+            setattr(plato, "plt_stock", stock_actual + cantidad)
             plato.save(update_fields=["plt_stock"])
 
-        return Response({"detail": "Producción realizada.", "cantidad": f"{cantidad}"}, status=201)
+        return Response(
+            {"detail": "Producción realizada.", "cantidad": f"{cantidad}"},
+            status=201,
+        )
     
 
 class PedidoViewSet(ModelViewSet):
@@ -704,6 +759,16 @@ class PedidoViewSet(ModelViewSet):
         # ── Bloqueo general de escritura ────────────────────────────
     @transaction.atomic
     def create(self, request, *args, **kwargs):
+        """
+        Valida stock teniendo en cuenta:
+        - El pedido NUEVO
+        - TODAS las reservas de pedidos EN PROCESO
+
+        Lógica:
+        - Primero suma insumos necesarios para TODOS los pedidos en proceso (reservados).
+        - Después suma insumos necesarios para el nuevo pedido.
+        - Si la suma total > stock de insumos -> 400 y NO crea el pedido.
+        """
         asegurar_caja_abierta()
 
         from decimal import Decimal
@@ -714,9 +779,69 @@ class PedidoViewSet(ModelViewSet):
         if not detalles:
             return Response({"detail": "El pedido no contiene ítems."}, status=400)
 
-        # Acumulador de insumos necesarios
-        requeridos = {}   # { id_insumo: {"nombre":..., "unidad":..., "total": Decimal} }
+        # Acumulador de insumos necesarios:
+        # { id_insumo: {"nombre":..., "unidad":..., "total": Decimal} }
+        requeridos = {}
 
+        # ─────────────────────────────────────────────
+        # 0) Reservas por pedidos EN PROCESO (stock "reservado")
+        # ─────────────────────────────────────────────
+        pedidos_abiertos = Pedidos.objects.filter(
+            id_estado_pedido_id=ESTADO_PEDIDO["EN_PROCESO"]
+        )
+
+        if pedidos_abiertos.exists():
+            dets_abiertos = (
+                DetallePedidos.objects
+                .select_related("id_plato")
+                .filter(id_pedido__in=pedidos_abiertos)
+            )
+
+            for det_ab in dets_abiertos:
+                plato = det_ab.id_plato
+                if not plato:
+                    continue
+
+                cant_abierta = Decimal(str(det_ab.detped_cantidad or 0))
+                if cant_abierta <= 0:
+                    continue
+
+                # Usamos RECETA para ver cuántos insumos va a consumir este pedido abierto
+                receta = Recetas.objects.filter(id_plato=plato).first()
+                if not receta:
+                    # Si el plato NO usa receta (solo stock de plato), no reserva insumos.
+                    # La reserva de stock de plato se está manejando en otro lado,
+                    # aquí nos enfocamos en insumos.
+                    continue
+
+                detalles_receta = (
+                    DetalleRecetas.objects
+                    .select_related("id_insumo")
+                    .filter(id_receta=receta)
+                )
+
+                for dr in detalles_receta:
+                    insumo = dr.id_insumo
+                    if not insumo:
+                        continue
+
+                    por_plato = Decimal(str(dr.detr_cant_unid))
+                    if por_plato <= 0:
+                        continue
+
+                    total_necesario = por_plato * cant_abierta
+
+                    entry = requeridos.setdefault(insumo.id_insumo, {
+                        "nombre": insumo.ins_nombre,
+                        "unidad": insumo.ins_unidad,
+                        "total": Decimal("0"),
+                    })
+                    entry["total"] += total_necesario
+
+        # ─────────────────────────────────────────────
+        # 1) Insumos necesarios para el NUEVO pedido
+        #     (reutilizamos "requeridos" como base)
+        # ─────────────────────────────────────────────
         for det in detalles:
             plato_id = det.get("id_plato")
             cantidad = Decimal(str(det.get("detped_cantidad", 0)))
@@ -726,22 +851,32 @@ class PedidoViewSet(ModelViewSet):
 
             plato = Platos.objects.filter(pk=plato_id).first()
             if not plato:
-                return Response({"detail": f"El plato con ID {plato_id} no existe."}, status=400)
+                return Response(
+                    {"detail": f"El plato con ID {plato_id} no existe."},
+                    status=400
+                )
 
-            stock_plato = Decimal(str(plato.plt_stock))
+            # Stock del plato: primero usamos lo que ya hay preparado
+            stock_plato = Decimal(str(plato.plt_stock or 0))
             desde_stock = min(stock_plato, cantidad)
             faltante = cantidad - desde_stock
 
-            # Si NO falta, seguir
+            # Si NO falta (todo sale de stock del plato), no se necesitan insumos
             if faltante <= 0:
                 continue
 
-            # Si falta → usar receta
+            # Si falta → se produciría usando RECETA => consume insumos
             receta = Recetas.objects.filter(id_plato=plato).first()
             if not receta:
-                return Response({
-                    "detail": f"El plato '{plato.plt_nombre}' no tiene receta para producir {faltante} unidad(es)."
-                }, status=400)
+                return Response(
+                    {
+                        "detail": (
+                            f"El plato '{plato.plt_nombre}' no tiene receta para "
+                            f"producir {faltante} unidad(es)."
+                        )
+                    },
+                    status=400
+                )
 
             detalles_receta = (
                 DetalleRecetas.objects
@@ -751,7 +886,13 @@ class PedidoViewSet(ModelViewSet):
 
             for dr in detalles_receta:
                 insumo = dr.id_insumo
+                if not insumo:
+                    continue
+
                 por_plato = Decimal(str(dr.detr_cant_unid))
+                if por_plato <= 0:
+                    continue
+
                 total_necesario = por_plato * faltante
 
                 entry = requeridos.setdefault(insumo.id_insumo, {
@@ -759,29 +900,38 @@ class PedidoViewSet(ModelViewSet):
                     "unidad": insumo.ins_unidad,
                     "total": Decimal("0"),
                 })
-
                 entry["total"] += total_necesario
 
-        # VALIDAR STOCK DE INSUMOS
+        # ─────────────────────────────────────────────
+        # 2) VALIDAR STOCK DE INSUMOS (reservas + nuevo pedido)
+        # ─────────────────────────────────────────────
         if requeridos:
-            ids = requeridos.keys()
+            ids = list(requeridos.keys())
             for ins in Insumos.objects.filter(pk__in=ids):
                 necesario = requeridos[ins.id_insumo]["total"]
-                disponible = Decimal(str(ins.ins_stock_actual))
+                disponible = Decimal(str(ins.ins_stock_actual or 0))
 
                 if disponible < necesario:
-                    return Response(
-                        {
-                            "detail": (
-                                f"Insumo insuficiente: {ins.ins_nombre}. "
-                                f"Requiere {necesario} {ins.ins_unidad} y solo hay {disponible}."
-                            )
-                        },
-                        status=400
+                    reservado = necesario - (ins.ins_stock_actual or 0)
+                    reservado = max(reservado, 0)
+
+                    detalle_msg = (
+                        f"Insumo insuficiente: {ins.ins_nombre}.\n"
+                        f"• Stock total: {ins.ins_stock_actual} {ins.ins_unidad}\n"
+                        f"• Reservado por pedidos en proceso: {reservado} {ins.ins_unidad}\n"
+                        f"• Disponible real (stock - reservas): {disponible} {ins.ins_unidad}\n"
+                        f"• Necesario para este pedido: {necesario} {ins.ins_unidad}\n\n"
+                        f"⚠ No alcanza: disponible descontando reservas = {disponible} {ins.ins_unidad}."
                     )
 
-        # Si todo OK → CREAR EL PEDIDO NORMALMENTE
+                    return Response({"detail": detalle_msg}, status=400)
+
+
+        # ─────────────────────────────────────────────
+        # 3) Si todo OK → CREAR EL PEDIDO NORMALMENTE
+        # ─────────────────────────────────────────────
         return super().create(request, *args, **kwargs)
+
 
 
     def update(self, request, *args, **kwargs):
@@ -1017,7 +1167,7 @@ class MetodoPagoViewSet(ModelViewSet):
 class RecetaViewSet(ModelViewSet):
     queryset = (
         Recetas.objects
-        .select_related("id_plato")
+        .select_related("id_plato", "id_estado_receta")
         .prefetch_related("detallerecetas_set__id_insumo")
         .all()
         .order_by("-id_receta")
@@ -1031,6 +1181,47 @@ class RecetaViewSet(ModelViewSet):
         if plato_id:
             qs = qs.filter(id_plato_id=plato_id)
         return qs
+
+    def _forzar_campos_fijos(self, instance, data_mutable):
+        """
+        Fuerza:
+        - rec_nombre = nombre del plato
+        - id_plato = el mismo plato que ya tiene
+        - id_estado_receta = el mismo estado que ya tiene
+        """
+        plato = instance.id_plato
+        nombre_plato = (
+            getattr(plato, "pla_nombre", None)
+            or getattr(plato, "plt_nombre", None)
+            or getattr(plato, "nombre", None)
+            or data_mutable.get("rec_nombre")
+        )
+        data_mutable["rec_nombre"] = nombre_plato
+        data_mutable["id_plato"] = instance.id_plato_id
+        if hasattr(instance, "id_estado_receta_id"):
+            data_mutable["id_estado_receta"] = instance.id_estado_receta_id
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        data = request.data.copy()
+
+        # Forzamos nombre / plato / estado
+        self._forzar_campos_fijos(instance, data)
+
+        serializer = self.get_serializer(
+            instance,
+            data=data,
+            partial=partial,
+        )
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
 
 class DetalleRecetaViewSet(ModelViewSet):
     queryset = (

@@ -1,3 +1,4 @@
+// src/pages/recetas/RecetaEditar.jsx
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../../api/axios";
@@ -10,20 +11,24 @@ function normalizeList(respData) {
   return [];
 }
 
+// Solo insumos activos (id_estado_insumo = 1)
+const esInsumoActivo = (i) => {
+  const estado = i.id_estado_insumo ?? i.id_estado ?? null;
+  return Number(estado) === 1;
+};
+
 export default function RecetaEditar() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [platos, setPlatos] = useState([]);
   const [insumos, setInsumos] = useState([]);
-
   const [form, setForm] = useState({
     rec_nombre: "",
     id_plato: "",
     rec_descripcion: "",
     id_estado_receta: "1",
   });
-
-  const [detalles, setDetalles] = useState([]);
+  const [detalles, setDetalles] = useState([{ id_insumo: "", detr_cant_unid: "" }]);
   const [errors, setErrors] = useState({});
   const [rowErrors, setRowErrors] = useState({});
   const [msg, setMsg] = useState("");
@@ -33,7 +38,7 @@ export default function RecetaEditar() {
       try {
         const [plRes, insRes] = await Promise.all([
           api.get("/api/platos/"),
-          api.get("/api/insumos/")
+          api.get("/api/insumos/"),
         ]);
         setPlatos(normalizeList(plRes.data));
         setInsumos(normalizeList(insRes.data));
@@ -84,6 +89,7 @@ export default function RecetaEditar() {
     if (parts.length > 2) s = parts.shift() + "." + parts.join("");
     return s;
   };
+
   const blockInvalidDecimal = (e) => {
     const invalid = ["-", "+", "e", "E", " "];
     if (invalid.includes(e.key)) e.preventDefault();
@@ -91,12 +97,18 @@ export default function RecetaEditar() {
 
   const validateField = (name, value) => {
     switch (name) {
-      case "rec_nombre":
-        if (!String(value).trim()) return "Ingresá un nombre.";
-        return "";
-      case "id_plato":
+      case "id_plato": {
         if (!String(value).trim()) return "Seleccioná un plato.";
         return "";
+      }
+      case "rec_descripcion": {
+        // opcional
+        return "";
+      }
+      case "id_estado_receta": {
+        if (!String(value).trim()) return "Seleccioná un estado.";
+        return "";
+      }
       default:
         return "";
     }
@@ -106,13 +118,83 @@ export default function RecetaEditar() {
     const errs = {};
     rows.forEach((r, idx) => {
       const e = {};
-      if (!String(r.id_insumo).trim()) e.id_insumo = "Seleccioná un insumo.";
+      if (!String(r.id_insumo).trim()) {
+        e.id_insumo = "Seleccioná un insumo.";
+      }
+
       const num = Number(r.detr_cant_unid);
       if (r.detr_cant_unid === "" || Number.isNaN(num) || num <= 0) {
         e.detr_cant_unid = "Cantidad debe ser > 0.";
+      } else {
+        // Validaciones por unidad de medida
+        const insumoSel = insumos.find(
+          (i) => String(i.id_insumo ?? i.id) === String(r.id_insumo)
+        );
+        const unidad = (insumoSel?.ins_unidad ?? insumoSel?.unidad ?? "")
+          .toString()
+          .toLowerCase();
+
+        if (unidad) {
+          let min = 0;
+          let max = Infinity;
+          let debeSerEntero = false;
+
+          switch (unidad) {
+            case "kg":
+              min = 0.001;
+              max = 10;
+              break;
+            case "g":
+              min = 1;
+              max = 10000;
+              break;
+            case "u":
+              min = 1;
+              max = 10;
+              debeSerEntero = true;
+              break;
+            case "l":
+              min = 0.001;
+              max = 10;
+              break;
+            case "ml":
+              min = 1;
+              max = 10000;
+              break;
+            default:
+              break;
+          }
+
+          if (debeSerEntero && !Number.isInteger(num)) {
+            e.detr_cant_unid =
+              "Para unidad 'u' la cantidad debe ser un número entero entre 1 y 10.";
+          } else if (num < min || num > max) {
+            e.detr_cant_unid = `Para unidad '${unidad}', la cantidad debe estar entre ${min} y ${max}.`;
+          }
+        }
       }
+
       if (Object.keys(e).length) errs[idx] = e;
     });
+
+    // 🔁 Validar que no haya insumos repetidos
+    const usados = {};
+    rows.forEach((r, idx) => {
+      const idIns = String(r.id_insumo || "");
+      if (!idIns) return;
+      if (!usados[idIns]) usados[idIns] = [];
+      usados[idIns].push(idx);
+    });
+
+    Object.values(usados).forEach((indices) => {
+      if (indices.length > 1) {
+        indices.forEach((i) => {
+          if (!errs[i]) errs[i] = {};
+          errs[i].id_insumo = "Este insumo ya está agregado en otra fila.";
+        });
+      }
+    });
+
     return errs;
   };
 
@@ -134,52 +216,45 @@ export default function RecetaEditar() {
     setRowErrors(re);
   };
 
-  const addRow = () => {
-    setDetalles((p) => [...p, { id_insumo: "", detr_cant_unid: "" }]);
+  const addDetalle = () => {
+    setDetalles((r) => [...r, { id_insumo: "", detr_cant_unid: "" }]);
   };
 
-  const removeRow = (idx) => {
-    setDetalles((p) => p.filter((_, i) => i !== idx));
-    setRowErrors((prev) => {
-      const n = { ...prev };
-      delete n[idx];
-      return n;
-    });
+  const removeDetalle = (idx) => {
+    setDetalles((rows) => rows.filter((_, i) => i !== idx));
   };
 
-  // ── REGLA: no permitir estado INACTIVO si el plato aparece en pedidos
+  // igual que en otros lados
   const platoEstaEnPedidos = async (idPlato) => {
-    // Intento 1: endpoints habituales del detalle de pedido filtrando por id_plato
-    const tryEndpoints = [
-      "/api/pedido-detalles/",
-      "/api/detalle-pedidos/",
-      "/api/detalles-pedido/",
-      "/api/pedidos-detalle/",
-    ];
-    for (const ep of tryEndpoints) {
+    const endpoints = ["/api/pedidos/"];
+    for (const ep of endpoints) {
       try {
-        const { data } = await api.get(ep, { params: { id_plato: Number(idPlato), page_size: 1 } });
+        const { data } = await api.get(ep, { params: { page_size: 1000 } });
         const list = normalizeList(data);
-        if (Array.isArray(list) && list.length > 0) return true;
-      } catch { /* seguir intentando */ }
-    }
-    // Intento 2: traer pedidos y revisar si embeben items
-    try {
-      const { data } = await api.get("/api/pedidos/", { params: { page_size: 1000 } });
-      const pedidos = normalizeList(data);
-      for (const p of pedidos) {
-        const items = p.detalles || p.items || p.lineas || [];
-        if (Array.isArray(items) && items.some(it => Number(it.id_plato ?? it.plato) === Number(idPlato))) {
-          return true;
+        for (const p of list) {
+          const dets = p.detalles || p.items || [];
+          if (
+            Array.isArray(dets) &&
+            dets.some((d) => Number(d.id_plato ?? d.plato) === Number(idPlato))
+          ) {
+            return true;
+          }
         }
+      } catch (e) {
+        console.error(e);
       }
-    } catch {/* noop */}
+    }
     return false;
   };
 
-  // ──────────────────────────────────────────────────────────────────
-  // SUBMIT
-  // ──────────────────────────────────────────────────────────────────
+  const navegarADetalleReceta = () => {
+    if (form.id_plato) {
+      navigate(`/platos/${form.id_plato}/receta`);
+    } else {
+      navigate("/platos");
+    }
+  };
+
   const onSubmit = async (e) => {
     e.preventDefault();
     setMsg("");
@@ -200,15 +275,29 @@ export default function RecetaEditar() {
     if (String(form.id_estado_receta) === "2") {
       const enPedidos = await platoEstaEnPedidos(form.id_plato);
       if (enPedidos) {
-        alert("No se puede desactivar la receta: su plato aparece en uno o más pedidos.");
+        alert(
+          "No se puede desactivar la receta: su plato aparece en uno o más pedidos."
+        );
         return;
       }
     }
 
     try {
       // 1) Actualizar cabecera
+      // Forzamos que el nombre de la receta sea SIEMPRE igual al nombre del plato,
+      // y que el plato vinculado / estado no se puedan cambiar.
+      const platoSel = platos.find(
+        (p) => String(p.id_plato ?? p.id) === String(form.id_plato)
+      );
+      const nombrePlato = platoSel
+        ? platoSel.pla_nombre ??
+          platoSel.plt_nombre ??
+          platoSel.nombre ??
+          `#${platoSel.id_plato ?? platoSel.id}`
+        : form.rec_nombre;
+
       const updateBody = {
-        rec_nombre: form.rec_nombre,
+        rec_nombre: nombrePlato,
         id_plato: Number(form.id_plato),
         rec_desc: form.rec_descripcion,
         id_estado_receta: Number(form.id_estado_receta),
@@ -229,109 +318,185 @@ export default function RecetaEditar() {
       for (const d of detalles) {
         await api.post(`/api/detalle-recetas/`, {
           id_receta: Number(id),
-          id_insumo: Number(d.id_insumo),
+          id_insumo:
+            d.id_insumo === "" || d.id_insumo === null ? 0 : Number(d.id_insumo),
           detr_cant_unid: Number(d.detr_cant_unid),
         });
       }
 
-      setMsg("Receta actualizada");
-      setTimeout(() => navigate("/recetas"), 800);
-    } catch (err) {
-      console.error(err);
-      setMsg("No se pudo actualizar la receta");
+      setMsg("Receta actualizada correctamente.");
+      setTimeout(() => {
+        navegarADetalleReceta();
+      }, 600);
+    } catch (e) {
+      console.error(e);
+      setMsg(
+        e?.response?.data
+          ? JSON.stringify(e.response.data, null, 2)
+          : "No se pudo actualizar la receta."
+      );
     }
   };
 
   return (
     <DashboardLayout>
-      <h2 style={{margin:0, marginBottom:12}}>Editar Receta</h2>
-      {msg && <p>{msg}</p>}
+      <h2 style={{ color: "#fff" }}>Editar receta</h2>
+
+      {msg && (
+        <p style={{ color: "#facc15", whiteSpace: "pre-wrap" }}>{msg}</p>
+      )}
 
       <form onSubmit={onSubmit} className="form">
         {/* Cabecera */}
         <div className="row">
-          <label htmlFor="rec_nombre">Nombre =</label>
-          <input id="rec_nombre" name="rec_nombre" value={form.rec_nombre} onChange={onChange} required />
+          <label>Plato vinculado =</label>
+          <input
+            value={(() => {
+              const pSel = platos.find(
+                (p) => String(p.id_plato ?? p.id) === String(form.id_plato)
+              );
+              return pSel
+                ? pSel.pla_nombre ??
+                    pSel.plt_nombre ??
+                    pSel.nombre ??
+                    `#${pSel.id_plato ?? pSel.id}`
+                : "";
+            })()}
+            readOnly
+            disabled
+          />
         </div>
-        {errors.rec_nombre && <small className="err">{errors.rec_nombre}</small>}
-
-        <div className="row">
-          <label htmlFor="id_plato">Plato =</label>
-          <select id="id_plato" name="id_plato" value={form.id_plato} onChange={onChange} required>
-            <option value="">-- Seleccioná --</option>
-            {platos.map((p) => {
-              const idp = p.id_plato ?? p.id;
-              const nombre = p.pla_nombre ?? p.plt_nombre ?? p.nombre ?? `#${idp}`;
-              return <option key={idp} value={idp}>{nombre}</option>;
-            })}
-          </select>
-        </div>
-        {errors.id_plato && <small className="err">{errors.id_plato}</small>}
 
         <div className="row">
           <label htmlFor="rec_descripcion">Descripción =</label>
-          <textarea id="rec_descripcion" name="rec_descripcion" rows={4} value={form.rec_descripcion} onChange={onChange} />
+          <textarea
+            id="rec_descripcion"
+            name="rec_descripcion"
+            rows={4}
+            value={form.rec_descripcion}
+            onChange={onChange}
+          />
         </div>
 
         <div className="row">
           <label htmlFor="id_estado_receta">Estado =</label>
-          <select id="id_estado_receta" name="id_estado_receta" value={form.id_estado_receta} onChange={onChange} required>
+          <select
+            id="id_estado_receta"
+            name="id_estado_receta"
+            value={form.id_estado_receta}
+            disabled
+          >
             <option value="1">Activo</option>
             <option value="2">Inactivo</option>
           </select>
         </div>
 
         {/* Detalles */}
-        <h3 style={{marginTop:18, marginBottom:8, color:"#fff"}}>Detalles de la Receta</h3>
+        <h3 style={{ color: "#fff", marginTop: 20 }}>Insumos de la receta</h3>
         <div className="table-wrap">
           <table className="table-dark">
             <thead>
               <tr>
-                <th style={{width:"55%"}}>Insumo</th>
-                <th style={{width:"25%"}}>Cantidad</th>
-                <th style={{width:"20%"}}></th>
+                <th style={{ width: "40%" }}>Insumo</th>
+                <th style={{ width: "40%" }}>Cantidad</th>
+                <th style={{ width: "20%" }}></th>
               </tr>
             </thead>
             <tbody>
               {detalles.map((row, idx) => {
                 const e = rowErrors[idx] || {};
+
+                // IDs seleccionados en otras filas (para no repetir)
+                const usadosEnOtrasFilas = new Set(
+                  detalles
+                    .map((r, i2) =>
+                      i2 === idx ? null : String(r.id_insumo || "")
+                    )
+                    .filter(Boolean)
+                );
+
+                // lista de insumos activos
+                const activos = insumos.filter(esInsumoActivo);
+
+                // insumo actualmente seleccionado en esta fila (puede estar inactivo)
+                const seleccionado = insumos.find(
+                  (i) => String(i.id_insumo ?? i.id) === String(row.id_insumo)
+                );
+
+                // opciones = activos que NO estén ya usados en otras filas
+                let opciones = activos.filter(
+                  (i) =>
+                    !usadosEnOtrasFilas.has(
+                      String(i.id_insumo ?? i.id)
+                    )
+                );
+
+                // si el seleccionado está inactivo o ya no está en activos,
+                // lo agregamos igual para que no "desaparezca" en edición
+                if (
+                  seleccionado &&
+                  !opciones.some(
+                    (i) =>
+                      String(i.id_insumo ?? i.id) ===
+                      String(row.id_insumo)
+                  )
+                ) {
+                  opciones = [...opciones, seleccionado];
+                }
+
                 return (
                   <tr key={idx}>
                     <td>
                       <select
                         value={row.id_insumo}
-                        onChange={(ev) => onChangeDetalle(idx, "id_insumo", ev.target.value)}
+                        onChange={(ev) =>
+                          onChangeDetalle(idx, "id_insumo", ev.target.value)
+                        }
                       >
                         <option value="">-- Seleccioná insumo --</option>
-                        {insumos.map((i) => {
-                          const id = i.id_insumo ?? i.id;
-                          const nombre = i.ins_nombre ?? i.nombre ?? `#${id}`;
+                        {opciones.map((i) => {
+                          const idIns = i.id_insumo ?? i.id;
+                          const nombre =
+                            i.ins_nombre ?? i.nombre ?? `#${idIns}`;
                           const unidad = i.ins_unidad ?? i.unidad ?? "";
                           return (
-                            <option key={id} value={id}>
-                              {nombre}{unidad ? ` (${unidad})` : ""}
+                            <option key={idIns} value={idIns}>
+                              {nombre}
+                              {unidad ? ` (${unidad})` : ""}
                             </option>
                           );
                         })}
                       </select>
-                      {e.id_insumo && <small className="err-inline">{e.id_insumo}</small>}
+                      {e.id_insumo && (
+                        <small className="err-inline">{e.id_insumo}</small>
+                      )}
                     </td>
                     <td>
                       <input
                         type="text"
                         inputMode="decimal"
                         value={row.detr_cant_unid}
-                        onChange={(ev) => onChangeDetalle(idx, "detr_cant_unid", ev.target.value)}
+                        onChange={(ev) =>
+                          onChangeDetalle(
+                            idx,
+                            "detr_cant_unid",
+                            ev.target.value
+                          )
+                        }
                         onKeyDown={blockInvalidDecimal}
                         placeholder="0.00"
                       />
-                      {e.detr_cant_unid && <small className="err-inline">{e.detr_cant_unid}</small>}
+                      {e.detr_cant_unid && (
+                        <small className="err-inline">
+                          {e.detr_cant_unid}
+                        </small>
+                      )}
                     </td>
-                    <td style={{textAlign:"right"}}>
+                    <td style={{ textAlign: "right" }}>
                       <button
                         type="button"
                         className="btn btn-secondary"
-                        onClick={() => removeRow(idx)}
+                        onClick={() => removeDetalle(idx)}
                         disabled={detalles.length === 1}
                       >
                         Quitar
@@ -343,14 +508,26 @@ export default function RecetaEditar() {
             </tbody>
           </table>
         </div>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={addDetalle}
+          style={{ marginTop: 8 }}
+        >
+          Agregar insumo
+        </button>
 
-        <div style={{marginTop:8, marginBottom:14}}>
-          <button type="button" className="btn btn-secondary" onClick={addRow}>Agregar renglón</button>
-        </div>
-
-        <div>
-          <button type="submit" className="btn btn-primary">Guardar cambios</button>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate("/recetas")} style={{marginLeft:10}}>Cancelar</button>
+        <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+          <button type="submit" className="btn btn-primary">
+            Guardar cambios
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={navegarADetalleReceta}
+          >
+            Cancelar
+          </button>
         </div>
       </form>
 
@@ -360,18 +537,40 @@ export default function RecetaEditar() {
 }
 
 const styles = `
-.form .row { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
-.form label { min-width:220px; text-align:right; color:#d1d5db; }
-textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px solid #2a2a2a; border-radius:8px; padding:10px 12px; }
+.form { max-width: 900px; }
+.row { display:flex; align-items:center; margin-bottom:8px; gap:8px; }
+.row label { width:220px; color:#eaeaea; }
+.row input, .row select, .row textarea {
+  flex:1;
+  background:#0f0f0f;
+  color:#fff;
+  border:1px solid #2a2a2a;
+  border-radius:8px;
+  padding:8px 10px;
+}
 .table-wrap { overflow:auto; margin-top:6px; }
 .table-dark { width:100%; border-collapse: collapse; background:#121212; color:#eaeaea; }
 .table-dark th, .table-dark td { border:1px solid #232323; padding:10px; vertical-align:top; }
+
+/* inputs y selects dentro de la tabla también en negro */
+.table-dark select,
+.table-dark input {
+  background:#0f0f0f;
+  color:#fff;
+  border:1px solid #2a2a2a;
+  border-radius:8px;
+  padding:6px 8px;
+}
+
 .err { color:#fca5a5; font-size:12px; margin-top:-6px; display:block; margin-left:232px; }
 .err-inline { color:#fca5a5; font-size:12px; display:block; margin-top:6px; }
 .btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
+
+
 
 
 

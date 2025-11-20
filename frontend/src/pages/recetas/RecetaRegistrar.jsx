@@ -188,7 +188,7 @@ export default function RecetaRegistrar() {
       }
 
       setMsg("Receta creada");
-      setTimeout(() => navigate("/recetas"), 800);
+      setTimeout(() => navigate("/platos"), 800);
     } catch (err) {
       console.error(err);
       setMsg("No se pudo crear la receta");
@@ -298,7 +298,7 @@ export default function RecetaRegistrar() {
 
         <div>
           <button type="submit" className="btn btn-primary">Registrar</button>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate("/recetas")} style={{marginLeft:10}}>Cancelar</button>
+          <button type="button" className="btn btn-secondary" onClick={() => navigate("/platos")} style={{marginLeft:10}}>Cancelar</button>
         </div>
       </form>
 

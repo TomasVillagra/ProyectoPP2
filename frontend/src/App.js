@@ -34,6 +34,7 @@ import PlatoEditar from "./pages/platos/PlatoEditar";
 import RecetasList from "./pages/recetas/RecetasList";
 import RecetaRegistrar from "./pages/recetas/RecetaRegistrar";
 import RecetaEditar from "./pages/recetas/RecetaEditar";
+import RecetaVer from "./pages/recetas/RecetaVer";
 
 //pedidos
 import PedidosList from "./pages/pedidos/PedidosList";
@@ -82,6 +83,8 @@ export default function App() {
         <Route path="/inventario/registrar" element={<ProtectedRoute><InsumoRegistrar /></ProtectedRoute>} />
         <Route path="/inventario/editar/:id" element={<ProtectedRoute><InsumoEditar /></ProtectedRoute>} />
         <Route path="/inventario/inactivos" element={<InventarioInactivosList />} />
+        
+
         {/* Empleados */}
         <Route path="/empleados" element={<ProtectedRoute><EmpleadosList /></ProtectedRoute>} />
         <Route path="/empleados/registrar" element={<ProtectedRoute><EmpleadoRegistrar /></ProtectedRoute>} />
@@ -98,10 +101,12 @@ export default function App() {
           <Route path="/platos" element={<PlatosList />} />
           <Route path="/platos/registrar" element={<PlatoRegistrar />} />
           <Route path="/platos/:id/editar" element={<PlatoEditar />} />
+          <Route path="/platos/:id/receta" element={<RecetaVer />} />
 
           <Route path="/recetas" element={<RecetasList />} />
           <Route path="/recetas/registrar" element={<RecetaRegistrar />} />
           <Route path="/recetas/:id/editar" element={<RecetaEditar />} />
+          
         {/* Pedidos */}
           <Route path="/pedidos" element={<PedidosList />} />
           <Route path="/pedidos/registrar" element={<PedidoRegistrar />} />

@@ -1,4 +1,3 @@
-// src/pages/platos/PlatosList.jsx
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api/axios";
@@ -12,14 +11,8 @@ function normalizeResponse(respData) {
   if (respData && typeof respData === "object") return [respData];
   return [];
 }
-const norm = (s) =>
-  String(s || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, "");
 
-/* ==== EXISTENTE: chequear si el plato está en pedidos para bloquear desactivado ==== */
+/* ==== chequear si el plato está en pedidos para bloquear desactivado ==== */
 async function platoEstaEnPedidos(idPlato) {
   const tryEndpoints = [
     "/api/pedido-detalles/",
@@ -29,18 +22,27 @@ async function platoEstaEnPedidos(idPlato) {
   ];
   for (const ep of tryEndpoints) {
     try {
-      const { data } = await api.get(ep, { params: { id_plato: Number(idPlato), page_size: 1 } });
+      const { data } = await api.get(ep, {
+        params: { id_plato: Number(idPlato), page_size: 1 },
+      });
       const list = normalizeResponse(data);
       if (list.length > 0) return true;
     } catch {}
   }
   // fallback: leer pedidos con items embebidos
   try {
-    const { data } = await api.get("/api/pedidos/", { params: { page_size: 1000 } });
+    const { data } = await api.get("/api/pedidos/", {
+      params: { page_size: 1000 },
+    });
     const pedidos = normalizeResponse(data);
     for (const p of pedidos) {
       const items = p.detalles || p.items || p.lineas || [];
-      if (Array.isArray(items) && items.some((it) => Number(it.id_plato ?? it.plato) === Number(idPlato))) {
+      if (
+        Array.isArray(items) &&
+        items.some(
+          (it) => Number(it.id_plato ?? it.plato) === Number(idPlato)
+        )
+      ) {
         return true;
       }
     }
@@ -57,7 +59,6 @@ const readPlatoStockField = (p) =>
 const readInsumoStockField = (i) =>
   getNumber(i?.ins_stock_actual ?? i?.ins_stock ?? i?.stock_actual ?? i?.stock ?? 0);
 
-// ⬅️ usa SIEMPRE detr_cant_unid si está presente (tu campo real)
 const readRecetaCantPorPlato = (det) =>
   getNumber(
     det?.detr_cant_unid ??
@@ -69,7 +70,11 @@ const readRecetaCantPorPlato = (det) =>
   );
 
 async function fetchPlato(platoId) {
-  const urls = [`/api/platos/${platoId}/`, `/api/plato/${platoId}/`, `/api/platos?id=${platoId}`];
+  const urls = [
+    `/api/platos/${platoId}/`,
+    `/api/plato/${platoId}/`,
+    `/api/platos?id=${platoId}`,
+  ];
   for (const u of urls) {
     try {
       const { data } = await api.get(u);
@@ -111,7 +116,11 @@ async function fetchDetallesReceta(recetaId) {
   return [];
 }
 async function fetchInsumo(insumoId) {
-  const urls = [`/api/insumos/${insumoId}/`, `/api/insumo/${insumoId}/`, `/api/insumos?id=${insumoId}`];
+  const urls = [
+    `/api/insumos/${insumoId}/`,
+    `/api/insumo/${insumoId}/`,
+    `/api/insumos?id=${insumoId}`,
+  ];
   for (const u of urls) {
     try {
       const { data } = await api.get(u);
@@ -121,16 +130,12 @@ async function fetchInsumo(insumoId) {
   return null;
 }
 
-/** Validación estricta:
- *  - Si hay stock directo del plato suficiente, OK (no requiere receta).
- *  - Si no, chequea receta y verifica TODOS los insumos; si falta alguno, devuelve detalle.
- *  - NO toca stock.
- *  Retorna null si todo OK, o { motivo, faltantes: [...] } si falla.
- */
+/** Validación estricta de producción */
 async function validarProduccion({ id_plato, cantidad }) {
   const platoId = Number(id_plato);
   const cant = Number(cantidad);
-  if (!platoId || !cant) return { motivo: "Datos inválidos.", faltantes: [] };
+  if (!platoId || !cant)
+    return { motivo: "Datos inválidos.", faltantes: [] };
 
   // 1) stock directo del plato
   const plato = await fetchPlato(platoId);
@@ -142,16 +147,22 @@ async function validarProduccion({ id_plato, cantidad }) {
   // 2) receta
   const receta = await fetchRecetaDePlato(platoId);
   if (!receta) {
-    return { motivo: "El plato no tiene receta y su stock actual no alcanza.", faltantes: [] };
+    return {
+      motivo: "El plato no tiene receta y su stock actual no alcanza.",
+      faltantes: [],
+    };
   }
 
-  const recetaId = receta.id_receta ?? receta.id ?? receta.receta_id ?? receta.rec_id ?? null;
+  const recetaId =
+    receta.id_receta ?? receta.id ?? receta.receta_id ?? receta.rec_id ?? null;
   const dets = recetaId ? await fetchDetallesReceta(recetaId) : [];
 
   // 3) pre-cálculo global
   const faltantes = [];
   for (const det of dets) {
-    const insumoId = Number(det.id_insumo ?? det.insumo ?? det.id ?? det.insumo_id ?? 0);
+    const insumoId = Number(
+      det.id_insumo ?? det.insumo ?? det.id ?? det.insumo_id ?? 0
+    );
     if (!insumoId) continue;
 
     const porPlato = readRecetaCantPorPlato(det);
@@ -163,25 +174,35 @@ async function validarProduccion({ id_plato, cantidad }) {
     const disp = readInsumoStockField(ins);
 
     if (disp < requerido) {
-      const nombre = ins?.ins_nombre ?? ins?.nombre ?? `Insumo #${insumoId}`;
-      faltantes.push({ id_insumo: insumoId, nombre, requerido, disponible: disp });
+      const nombre =
+        ins?.ins_nombre ?? ins?.nombre ?? `Insumo #${insumoId}`;
+      faltantes.push({
+        id_insumo: insumoId,
+        nombre,
+        requerido,
+        disponible: disp,
+      });
     }
   }
 
-  return faltantes.length ? { motivo: "Faltan insumos para producir.", faltantes } : null;
+  return faltantes.length
+    ? { motivo: "Faltan insumos para producir.", faltantes }
+    : null;
 }
 
 /** Intenta usar endpoint especializado si existe */
 async function tryProducirEndpoint(platoId, cantidad) {
   try {
-    await api.post(`/api/platos/${platoId}/producir/`, { cantidad: Number(cantidad) });
+    await api.post(`/api/platos/${platoId}/producir/`, {
+      cantidad: Number(cantidad),
+    });
     return true;
   } catch {
     return false;
   }
 }
 
-/** PATCH helpers (respeta tus nombres reales de campos) */
+/** PATCH helpers */
 async function actualizarStockPlato(platoId, nuevoStock) {
   const payloadCandidates = [
     { plt_stock: Number(nuevoStock) },
@@ -209,23 +230,28 @@ async function actualizarStockInsumo(insumoId, nuevoStock) {
       return true;
     } catch {}
   }
-  throw new Error(`No se pudo actualizar el stock del insumo #${insumoId}.`);
+  throw new Error(
+    `No se pudo actualizar el stock del insumo #${insumoId}.`
+  );
 }
 
-/** Fallback seguro:
- *  - Recalcula TODO
- *  - Si cualquier insumo quedaría negativo, lanza error y NO toca nada
- */
+/** Fallback seguro para producir */
 async function producirPorFallback(platoId, cantidad) {
   const receta = await fetchRecetaDePlato(platoId);
-  if (!receta) throw new Error("El plato no tiene receta para producir por fallback.");
-  const recetaId = receta.id_receta ?? receta.id ?? receta.receta_id ?? receta.rec_id ?? null;
+  if (!receta)
+    throw new Error(
+      "El plato no tiene receta para producir por fallback."
+    );
+  const recetaId =
+    receta.id_receta ?? receta.id ?? receta.receta_id ?? receta.rec_id ?? null;
   const dets = recetaId ? await fetchDetallesReceta(recetaId) : [];
 
   // pre-calcular requerimientos + disponibilidad
   const requeridos = [];
   for (const det of dets) {
-    const insumoId = Number(det.id_insumo ?? det.insumo ?? det.id ?? det.insumo_id ?? 0);
+    const insumoId = Number(
+      det.id_insumo ?? det.insumo ?? det.id ?? det.insumo_id ?? 0
+    );
     if (!insumoId) continue;
 
     const porPlato = readRecetaCantPorPlato(det);
@@ -236,8 +262,11 @@ async function producirPorFallback(platoId, cantidad) {
     const disp = readInsumoStockField(ins);
 
     if (disp - req < 0) {
-      const nombre = ins?.ins_nombre ?? ins?.nombre ?? `Insumo #${insumoId}`;
-      throw new Error(`Insumo insuficiente: ${nombre}. Requiere ${req}, disponible ${disp}.`);
+      const nombre =
+        ins?.ins_nombre ?? ins?.nombre ?? `Insumo #${insumoId}`;
+      throw new Error(
+        `Insumo insuficiente: ${nombre}. Requiere ${req}, disponible ${disp}.`
+      );
     }
 
     requeridos.push({ insumoId, req, disp });
@@ -260,21 +289,20 @@ export default function PlatosList() {
   const [categorias, setCategorias] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
+  const [recetaPorPlato, setRecetaPorPlato] = useState({});
 
-  // ---- estado modal categoría ----
-  const [showCatModal, setShowCatModal] = useState(false);
-  const [catNombre, setCatNombre] = useState("");
-  const [catMsg, setCatMsg] = useState("");
-  const [savingCat, setSavingCat] = useState(false);
+  // filtros
+  const [qNombre, setQNombre] = useState("");
+  const [fCategoria, setFCategoria] = useState("");
+  const [fEstado, setFEstado] = useState("");
 
-  // ---- modal de producción ----
+  // modal de producción
   const [showProd, setShowProd] = useState(false);
   const [prodPlato, setProdPlato] = useState(null);
   const [prodCantidad, setProdCantidad] = useState("");
   const [prodMsg, setProdMsg] = useState("");
   const [producing, setProducing] = useState(false);
 
-  // cargar categorías para mapear id -> nombre
   const fetchCategorias = async () => {
     try {
       const res = await api.get("/api/categorias-plato/");
@@ -288,9 +316,14 @@ export default function PlatosList() {
   const catMap = useMemo(() => {
     const map = {};
     categorias.forEach((c) => {
-      const id = c.id_categoria_plato ?? c.id_categoria ?? c.id ?? c.categoria_id;
+      const id =
+        c.id_categoria_plato ?? c.id_categoria ?? c.id ?? c.categoria_id;
       const nombre =
-        c.catplt_nombre ?? c.categoria_nombre ?? c.cat_nombre ?? c.nombre ?? (id != null ? `#${id}` : "-");
+        c.catplt_nombre ??
+        c.categoria_nombre ??
+        c.cat_nombre ??
+        c.nombre ??
+        (id != null ? `#${id}` : "-");
       if (id != null) map[id] = nombre;
     });
     return map;
@@ -309,26 +342,55 @@ export default function PlatosList() {
     }
   };
 
+  const fetchRecetas = async () => {
+    try {
+      const res = await api.get("/api/recetas/", {
+        params: { page_size: 1000 },
+      });
+      const list = normalizeResponse(res.data);
+      const map = {};
+      list.forEach((r) => {
+        const idPlato =
+          r.id_plato ?? r?.plato?.id_plato ?? r?.plato;
+        const idReceta = r.id_receta ?? r.id;
+        if (idPlato && idReceta) {
+          map[Number(idPlato)] = Number(idReceta);
+        }
+      });
+      setRecetaPorPlato(map);
+    } catch (e) {
+      console.error("No se pudieron cargar recetas", e);
+    }
+  };
+
   useEffect(() => {
-    Promise.all([fetchCategorias(), fetchPlatos()]).catch(() => {});
+    Promise.all([fetchCategorias(), fetchPlatos(), fetchRecetas()]).catch(
+      () => {}
+    );
   }, []);
 
   const toggleEstado = async (plato) => {
     try {
       const id = plato.id_plato ?? plato.id;
-      const idEstadoActual = String(plato.id_estado_plato ?? plato.id_estado ?? plato.estado ?? "1");
+      const idEstadoActual = String(
+        plato.id_estado_plato ?? plato.id_estado ?? plato.estado ?? "1"
+      );
       const nextEstado = idEstadoActual === "1" ? 2 : 1;
 
       // si voy a desactivar y está en pedidos -> bloquear
       if (nextEstado === 2) {
         const enPedidos = await platoEstaEnPedidos(id);
         if (enPedidos) {
-          alert("No se puede desactivar el plato: está asociado a uno o más pedidos.");
+          alert(
+            "No se puede desactivar el plato: está asociado a uno o más pedidos."
+          );
           return;
         }
       }
 
-      await api.patch(`/api/platos/${id}/`, { id_estado_plato: nextEstado });
+      await api.patch(`/api/platos/${id}/`, {
+        id_estado_plato: nextEstado,
+      });
       await fetchPlatos();
     } catch (e) {
       console.error(e);
@@ -336,81 +398,45 @@ export default function PlatosList() {
     }
   };
 
-  // duplicados por nombre (rapidez visual)
-  const nombresNormalizados = useMemo(() => {
-    const map = {};
-    data.forEach((p) => {
-      const n = p.pla_nombre ?? p.plt_nombre ?? p.nombre ?? "";
-      map[norm(n)] = true;
+  /* ================== FILTROS APLICADOS ================== */
+  const filteredData = useMemo(() => {
+    return data.filter((r) => {
+      const nombrePlano = (
+        r.pla_nombre ??
+        r.plt_nombre ??
+        r.nombre ??
+        ""
+      ).toLowerCase();
+
+      if (
+        qNombre &&
+        !nombrePlano.includes(qNombre.toLowerCase())
+      )
+        return false;
+
+      const categoriaId =
+        r.id_categoria_plato ??
+        r.id_categoria ??
+        r.categoria_id ??
+        (r.categoria && typeof r.categoria === "object"
+          ? r.categoria.id ?? r.categoria.id_categoria
+          : null);
+
+      if (
+        fCategoria &&
+        String(categoriaId) !== String(fCategoria)
+      )
+        return false;
+
+      const idEstado = String(
+        r.id_estado_plato ?? r.id_estado ?? r.estado ?? "1"
+      );
+      if (fEstado === "1" && idEstado !== "1") return false;
+      if (fEstado === "2" && idEstado !== "2") return false;
+
+      return true;
     });
-    return map;
-  }, [data]);
-
-  // categorías normalizadas para validar duplicados
-  const categoriaNormSet = useMemo(() => {
-    const set = new Set();
-    categorias.forEach((c) => {
-      const n = c.catplt_nombre ?? c.categoria_nombre ?? c.cat_nombre ?? c.nombre ?? "";
-      set.add(norm(n));
-    });
-    return set;
-  }, [categorias]);
-
-  // crear categoría
-  const tryCreateCategoria = async (nombrePlano) => {
-    const candidates = [
-      { catplt_nombre: nombrePlano },
-      { categoria_nombre: nombrePlano },
-      { cat_nombre: nombrePlano },
-      { nombre: nombrePlano },
-    ];
-    let lastErr = null;
-    for (const body of candidates) {
-      try {
-        const { data } = await api.post("/api/categorias-plato/", body);
-        return data;
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-    throw lastErr;
-  };
-
-  const abrirModalCategoria = () => {
-    setCatNombre("");
-    setCatMsg("");
-    setShowCatModal(true);
-  };
-
-  const crearCategoria = async () => {
-    const raw = (catNombre || "").trim();
-    const n = norm(raw);
-
-    if (!raw) {
-      setCatMsg("Ingresá un nombre de categoría.");
-      return;
-    }
-    if (/^\d+$/.test(raw)) {
-      setCatMsg("El nombre no puede ser solo números.");
-      return;
-    }
-    if (categoriaNormSet.has(n)) {
-      setCatMsg("Ya existe una categoría con ese nombre (ignorando mayúsculas y espacios).");
-      return;
-    }
-
-    try {
-      setSavingCat(true);
-      await tryCreateCategoria(raw);
-      await fetchCategorias();
-      setShowCatModal(false);
-    } catch (e) {
-      const apiMsg = e?.response?.data ? JSON.stringify(e.response.data) : "No se pudo crear la categoría.";
-      setCatMsg(apiMsg);
-    } finally {
-      setSavingCat(false);
-    }
-  };
+  }, [data, qNombre, fCategoria, fEstado]);
 
   /* ================================================================
      Flujo “Cargar stock” (producir)
@@ -437,13 +463,18 @@ export default function PlatosList() {
       setProducing(true);
 
       // 1) Validar stock (plato directo y receta→insumos)
-      const err = await validarProduccion({ id_plato: platoId, cantidad: cant });
+      const err = await validarProduccion({
+        id_plato: platoId,
+        cantidad: cant,
+      });
       if (err) {
         const líneas = [];
         líneas.push(err.motivo || "No se puede producir.");
         if (err.faltantes?.length) {
           err.faltantes.forEach((f) => {
-            líneas.push(`- ${f.nombre}: requiere ${f.requerido}, disponible ${f.disponible}`);
+            líneas.push(
+              `- ${f.nombre}: requiere ${f.requerido}, disponible ${f.disponible}`
+            );
           });
         }
         setProdMsg(líneas.join("\n"));
@@ -474,16 +505,96 @@ export default function PlatosList() {
 
   return (
     <DashboardLayout>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 12,
+        }}
+      >
         <h2 style={{ margin: 0, color: "#fff" }}>Platos</h2>
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn btn-secondary" onClick={abrirModalCategoria}>
+          {/* Botón que pediste, lo dejamos visible (sin lógica de modal para evitar errores) */}
+          <button className="btn btn-secondary" type="button">
             Agregar categoría
           </button>
           <Link to="/platos/registrar" className="btn btn-primary">
             Registrar plato
           </Link>
         </div>
+      </div>
+
+      {/* Filtros */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 12,
+          alignItems: "center",
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Buscar por nombre..."
+          value={qNombre}
+          onChange={(e) => setQNombre(e.target.value)}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: "1px solid #333",
+            background: "#0f0f0f",
+            color: "#fff",
+          }}
+        />
+        <select
+          value={fCategoria}
+          onChange={(e) => setFCategoria(e.target.value)}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: "1px solid #333",
+            background: "#0f0f0f",
+            color: "#fff",
+          }}
+        >
+          <option value="">Todas las categorías</option>
+          {categorias.map((c) => {
+            const id =
+              c.id_categoria_plato ??
+              c.id_categoria ??
+              c.id ??
+              c.categoria_id;
+            const nombre =
+              c.catplt_nombre ??
+              c.categoria_nombre ??
+              c.cat_nombre ??
+              c.nombre ??
+              (id != null ? `#${id}` : "-");
+            return (
+              <option key={id} value={id}>
+                {nombre}
+              </option>
+            );
+          })}
+        </select>
+
+        <select
+          value={fEstado}
+          onChange={(e) => setFEstado(e.target.value)}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: "1px solid #333",
+            background: "#0f0f0f",
+            color: "#fff",
+          }}
+        >
+          <option value="">Todos los estados</option>
+          <option value="1">Activos</option>
+          <option value="2">Inactivos</option>
+        </select>
       </div>
 
       {msg && <p style={{ color: "#facc15" }}>{msg}</p>}
@@ -500,38 +611,71 @@ export default function PlatosList() {
                 <th>Stock</th>
                 <th>Categoría</th>
                 <th>Estado</th>
-                <th style={{ width: 340 }}>Acciones</th>
+                <th style={{ width: 420 }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {data.length === 0 && (
+              {filteredData.length === 0 && (
                 <tr>
                   <td colSpan="7" style={{ textAlign: "center" }}>
                     Sin registros
                   </td>
                 </tr>
               )}
-              {data.map((r, idx) => {
-                const id = r.id_plato ?? r.id ?? idx;
-                const nombre = r.pla_nombre ?? r.plt_nombre ?? r.nombre ?? "(sin nombre)";
-                const precio = r.pla_precio ?? r.plt_precio ?? r.precio ?? 0;
-                const stock = r.plt_stock ?? r.pla_stock ?? r.stock ?? r.stock_actual ?? "-";
+              {filteredData.map((r, idx) => {
+                const idPlato = r.id_plato ?? r.id ?? idx;
+                const id = idPlato;
+                const nombre =
+                  r.pla_nombre ??
+                  r.plt_nombre ??
+                  r.nombre ??
+                  "(sin nombre)";
+                const precio =
+                  r.pla_precio ?? r.plt_precio ?? r.precio ?? 0;
+                const stock =
+                  r.plt_stock ??
+                  r.pla_stock ??
+                  r.stock ??
+                  r.stock_actual ??
+                  "-";
 
-                let categoriaNombre = r.categoria_nombre ?? r.cat_nombre ?? null;
-                if (!categoriaNombre && r.categoria && typeof r.categoria === "object") {
+                let categoriaNombre =
+                  r.categoria_nombre ?? r.cat_nombre ?? null;
+                if (
+                  !categoriaNombre &&
+                  r.categoria &&
+                  typeof r.categoria === "object"
+                ) {
                   categoriaNombre =
-                    r.categoria.nombre ?? r.categoria.cat_nombre ?? r.categoria.categoria_nombre ?? null;
+                    r.categoria.nombre ??
+                    r.categoria.cat_nombre ??
+                    r.categoria.categoria_nombre ??
+                    null;
                 }
                 const categoriaId =
                   r.id_categoria_plato ??
                   r.id_categoria ??
                   r.categoria_id ??
-                  (r.categoria && typeof r.categoria === "object" ? r.categoria.id ?? r.categoria.id_categoria : null);
+                  (r.categoria && typeof r.categoria === "object"
+                    ? r.categoria.id ?? r.categoria.id_categoria
+                    : null);
 
-                const categoria = categoriaNombre ?? (categoriaId != null ? catMap[categoriaId] || `#${categoriaId}` : "-");
+                const categoria =
+                  categoriaNombre ??
+                  (categoriaId != null
+                    ? catMap[categoriaId] || `#${categoriaId}`
+                    : "-");
 
-                const idEstado = String(r.id_estado_plato ?? r.id_estado ?? r.estado ?? "1");
-                const estadoNombre = r.estado_nombre || (idEstado === "1" ? "Activo" : "Inactivo");
+                const idEstado = String(
+                  r.id_estado_plato ??
+                    r.id_estado ??
+                    r.estado ??
+                    "1"
+                );
+                const estadoNombre =
+                  r.estado_nombre ||
+                  (idEstado === "1" ? "Activo" : "Inactivo");
+                const recetaId = recetaPorPlato[Number(idPlato)];
 
                 return (
                   <tr key={id}>
@@ -542,16 +686,21 @@ export default function PlatosList() {
                     <td>{categoria}</td>
                     <td>{estadoNombre}</td>
                     <td style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <Link to={`/platos/${id}/editar`} className="btn btn-secondary">
-                        Editar
-                      </Link>
-                      <button onClick={() => toggleEstado(r)} className="btn btn-danger">
-                        {idEstado === "1" ? "Desactivar" : "Activar"}
-                      </button>
-                      <button className="btn btn-primary" onClick={() => abrirCargarStock(r)}>
-                        Cargar stock
-                      </button>
-                    </td>
+                    <Link to={`/platos/${id}/editar`} className="btn btn-secondary">
+                      Editar
+                    </Link>
+                    <button onClick={() => toggleEstado(r)} className="btn btn-danger">
+                      {idEstado === "1" ? "Desactivar" : "Activar"}
+                    </button>
+                    <button className="btn btn-primary" onClick={() => abrirCargarStock(r)}>
+                      Cargar stock
+                    </button>
+                    {/* NUEVO: ir a ver la receta de este plato */}
+                    <Link to={`/platos/${id}/receta`} className="btn btn-secondary">
+                      Ver receta
+                    </Link>
+                  </td>
+
                   </tr>
                 );
               })}
@@ -560,49 +709,35 @@ export default function PlatosList() {
         </div>
       )}
 
-      {/* Modal simple para crear categoría */}
-      {showCatModal && (
-        <div style={modal.backdrop} onClick={() => !savingCat && setShowCatModal(false)}>
-          <div style={modal.card} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>Agregar categoría</h3>
-            <p style={{ margin: "6px 0 12px", color: "#d1d5db" }}>
-              Validación: sin duplicados (ignora mayúsculas, tildes y espacios) y no puede ser solo números.
-            </p>
-            <input
-              type="text"
-              placeholder="Nombre de la categoría"
-              value={catNombre}
-              onChange={(e) => setCatNombre(e.target.value)}
-              style={modal.input}
-              disabled={savingCat}
-            />
-            {catMsg && <div style={modal.warn}>{catMsg}</div>}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
-              <button className="btn btn-secondary" onClick={() => setShowCatModal(false)} disabled={savingCat}>
-                Cancelar
-              </button>
-              <button className="btn btn-primary" onClick={crearCategoria} disabled={savingCat}>
-                {savingCat ? "Guardando..." : "Guardar"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Modal para producir (cargar stock) */}
       {showProd && (
-        <div style={modal.backdrop} onClick={() => !producing && setShowProd(false)}>
-          <div style={modal.card} onClick={(e) => e.stopPropagation()}>
+        <div
+          style={modal.backdrop}
+          onClick={() => !producing && setShowProd(false)}
+        >
+          <div
+            style={modal.card}
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 style={{ marginTop: 0 }}>Cargar stock de plato</h3>
-            <p style={{ margin: "6px 0 12px", color: "#d1d5db" }}>
-              Ingresá la <strong>cantidad</strong> a producir. Se validará el stock de insumos según la{" "}
-              <strong>receta</strong>. Si falta algún insumo, no se descontará nada.
+            <p
+              style={{
+                margin: "6px 0 12px",
+                color: "#d1d5db",
+              }}
+            >
+              Ingresá la <strong>cantidad</strong> a producir. Se validará
+              el stock de insumos según la <strong>receta</strong>. Si
+              falta algún insumo, no se descontará nada.
             </p>
             <div style={{ display: "grid", gap: 8 }}>
               <div style={{ color: "#eaeaea" }}>
                 Plato:{" "}
                 <strong>
-                  {prodPlato?.pla_nombre ?? prodPlato?.plt_nombre ?? prodPlato?.nombre ?? `#${prodPlato?.id_plato ?? prodPlato?.id}`}
+                  {prodPlato?.pla_nombre ??
+                    prodPlato?.plt_nombre ??
+                    prodPlato?.nombre ??
+                    `#${prodPlato?.id_plato ?? prodPlato?.id}`}
                 </strong>
               </div>
               <input
@@ -611,17 +746,36 @@ export default function PlatosList() {
                 step="1"
                 placeholder="Cantidad"
                 value={prodCantidad}
-                onChange={(e) => setProdCantidad(e.target.value)}
+                onChange={(e) =>
+                  setProdCantidad(e.target.value)
+                }
                 style={modal.input}
                 disabled={producing}
               />
             </div>
-            {prodMsg && <pre style={modal.warn}>{prodMsg}</pre>}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
-              <button className="btn btn-secondary" onClick={() => setShowProd(false)} disabled={producing}>
+            {prodMsg && (
+              <pre style={modal.warn}>{prodMsg}</pre>
+            )}
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                justifyContent: "flex-end",
+                marginTop: 12,
+              }}
+            >
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowProd(false)}
+                disabled={producing}
+              >
                 Cancelar
               </button>
-              <button className="btn btn-primary" onClick={producir} disabled={producing}>
+              <button
+                className="btn btn-primary"
+                onClick={producir}
+                disabled={producing}
+              >
                 {producing ? "Procesando..." : "Producir"}
               </button>
             </div>
@@ -683,6 +837,9 @@ const modal = {
     whiteSpace: "pre-wrap",
   },
 };
+
+
+
 
 
 

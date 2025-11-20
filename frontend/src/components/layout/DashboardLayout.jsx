@@ -142,8 +142,8 @@ export default function DashboardLayout({ children, topRight = null }) {
     { key: "compras", label: "Compras", path: "/compras", icon: <FaTruck /> },
 
     // Cocina
-    { key: "platos", label: "Platos", path: "/platos", icon: <FaClipboardList /> },
-    { key: "recetas", label: "Recetas", path: "/recetas", icon: <FaListUl /> },
+    { key: "platos", label: "Menú", path: "/platos", icon: <FaClipboardList /> },
+    
     { key: "mesas", label: "Mesas", path: "/mesas", icon: <FaBoxes /> },
 
     // Extras frecuentes (si ya tenés rutas)
