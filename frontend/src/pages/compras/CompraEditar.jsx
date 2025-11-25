@@ -35,6 +35,9 @@ export default function CompraEditar() {
   const [insumos, setInsumos] = useState([]);
   const [proveedores, setProveedores] = useState([]);
 
+  // 🔹 vínculos proveedor–insumo (como en CompraRegistrar)
+  const [linksProvInsumo, setLinksProvInsumo] = useState([]);
+
   const [form, setForm] = useState({
     id_empleado: "",
     id_estado_compra: "",
@@ -105,6 +108,47 @@ export default function CompraEditar() {
     load();
   }, [id]);
 
+  // 🔹 Cuando ya tengo el proveedor de la compra, traigo vínculos proveedor–insumo
+  useEffect(() => {
+    const fetchLinks = async () => {
+      if (!form.id_proveedor) {
+        setLinksProvInsumo([]);
+        return;
+      }
+
+      try {
+        const res = await api.get(
+          `/api/proveedores-insumos/?id_proveedor=${form.id_proveedor}`
+        );
+        const arr = norm(res);
+        setLinksProvInsumo(arr);
+      } catch (e) {
+        console.error(e);
+        setLinksProvInsumo([]);
+        // no corto el flujo, sólo aviso
+        setMsg((m) =>
+          (m ? m + "\n" : "") +
+          "No se pudieron cargar los insumos vinculados al proveedor."
+        );
+      }
+    };
+
+    fetchLinks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.id_proveedor]);
+
+  // 🔹 Insumos disponibles = sólo los vinculados al proveedor
+  const insumosDisponibles = useMemo(() => {
+    if (!linksProvInsumo.length) {
+      // fallback: si no hay vínculos, uso todos para no romper compras viejas
+      return insumos;
+    }
+    const ids = new Set(linksProvInsumo.map((l) => Number(l.id_insumo)));
+    return (insumos || []).filter((i) =>
+      ids.has(Number(i.id_insumo ?? i.id ?? 0))
+    );
+  }, [linksProvInsumo, insumos]);
+
   // ===== Handlers =====
   const onChange = (e) =>
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -157,7 +201,7 @@ export default function CompraEditar() {
       return;
     }
 
-    // 👉 NUEVO: la compra no puede quedar sin insumos válidos
+    // la compra no puede quedar sin insumos válidos
     if (!rows.length || rows.every((r) => !r.id_insumo)) {
       setMsg("La compra debe tener al menos un insumo.");
       return;
@@ -213,7 +257,6 @@ export default function CompraEditar() {
       setTimeout(() => navigate("/compras"), 800);
     } catch (err) {
       console.error(err);
-      // si el back manda un detail (por stock máximo, etc.), lo mostramos
       const apiMsg =
         err?.response?.data?.detail ||
         (typeof err?.response?.data === "string"
@@ -223,7 +266,7 @@ export default function CompraEditar() {
     }
   };
 
-  // ===== Insumos sin repetir por fila =====
+  // ===== Insumos sin repetir por fila + filtrados por proveedor =====
   const opcionesInsumosPorFila = (index) => {
     const selectedId = Number(rows[index]?.id_insumo || 0);
     const usedIds = new Set(
@@ -232,12 +275,36 @@ export default function CompraEditar() {
         .map((r) => Number(r.id_insumo || 0))
     );
 
-    return insumos.filter((ins) => {
+    // base: insumos filtrados por proveedor (o todos si no hay vínculos)
+    let baseList = insumosDisponibles && insumosDisponibles.length
+      ? insumosDisponibles
+      : insumos;
+
+    let opts = baseList.filter((ins) => {
       const idIns = Number(ins.id_insumo ?? ins.id ?? 0);
       if (!idIns) return false;
-      if (idIns === selectedId) return true;
-      return !usedIds.has(idIns);
+      if (idIns === selectedId) return true; // mantener el actual
+      return !usedIds.has(idIns); // evitar repetidos en otros renglones
     });
+
+    // Si el insumo actualmente seleccionado no está en la lista (por ejemplo,
+    // una compra antigua con un insumo que ya no está vinculado al proveedor),
+    // lo agregamos para no romper el select.
+    if (
+      selectedId &&
+      !opts.some(
+        (ins) => Number(ins.id_insumo ?? ins.id ?? 0) === selectedId
+      )
+    ) {
+      const extra = insumos.find(
+        (ins) => Number(ins.id_insumo ?? ins.id ?? 0) === selectedId
+      );
+      if (extra) {
+        opts = [extra, ...opts];
+      }
+    }
+
+    return opts;
   };
 
   return (
@@ -472,6 +539,8 @@ textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px
 .btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
 .btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
 `;
+
+
 
 
 

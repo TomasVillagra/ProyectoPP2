@@ -16,7 +16,7 @@ export default function EmpleadoEditar() {
     id_cargo_emp: "",
     id_estado_empleado: "",
     username: "",
-    password: "",
+    password: "", // nueva contraseña (opcional)
   });
   const [cargos, setCargos] = useState([]);
   const [estados, setEstados] = useState([]);
@@ -47,19 +47,24 @@ export default function EmpleadoEditar() {
           id_estado_empleado: empData.id_estado_empleado
             ? String(empData.id_estado_empleado)
             : "",
+          // Solo para mostrar, NO se envía en el PUT
           username: empData.username || empData.emp_dni || "",
-          password: "",
+          password: "", // en edición: nueva contraseña (opcional)
         });
 
-        setCargos(
-          Array.isArray(carg.data?.results)
-            ? carg.data.results
-            : carg.data
-        );
+        // Filtramos cocinero y repositor
+        const rawCargos = Array.isArray(carg.data?.results)
+          ? carg.data.results
+          : carg.data;
+        const lista = Array.isArray(rawCargos) ? rawCargos : [];
+        const filtrados = lista.filter((c) => {
+          const name = norm(c.carg_nombre);
+          return name !== "cocinero" && name !== "repositor";
+        });
+        setCargos(filtrados);
+
         setEstados(
-          Array.isArray(est.data?.results)
-            ? est.data.results
-            : est.data
+          Array.isArray(est.data?.results) ? est.data.results : est.data
         );
       } catch (err) {
         console.error(err);
@@ -77,6 +82,7 @@ export default function EmpleadoEditar() {
     const dni = (values.emp_dni || "").trim();
     const tel = (values.emp_tel || "").trim();
     const correo = (values.emp_correo || "").trim();
+    const pwd = (values.password || "").trim();
 
     // Nombre
     if (!nombre) {
@@ -132,6 +138,14 @@ export default function EmpleadoEditar() {
       e.id_estado_empleado = "El estado es obligatorio.";
     }
 
+    // Contraseña nueva (opcional)
+    if (pwd) {
+      if (pwd.length < 6 || pwd.length > 20) {
+        e.password =
+          "La contraseña debe tener entre 6 y 20 caracteres.";
+      }
+    }
+
     return e;
   };
 
@@ -139,12 +153,11 @@ export default function EmpleadoEditar() {
     const { name, value } = e.target;
 
     if (name === "emp_dni") {
+      // ⛔ Ya NO toca username ni password
       const soloNums = value.replace(/\D/g, "");
       setForm((prev) => ({
         ...prev,
         emp_dni: soloNums,
-        username: soloNums,
-        password: soloNums,
       }));
     } else {
       setForm((prev) => ({
@@ -172,6 +185,7 @@ export default function EmpleadoEditar() {
     const dni = form.emp_dni.trim();
     const correo = form.emp_correo.trim();
     const tel = form.emp_tel.trim();
+    const pwd = form.password.trim();
 
     try {
       // empleados para duplicados (excluyendo al propio)
@@ -185,7 +199,7 @@ export default function EmpleadoEditar() {
       const thisId = String(id);
 
       const empIdStr = (emp) =>
-        String(emp.id_empleado ?? emp.id ?? "");
+      String(emp.id_empleado ?? emp.id ?? "");
 
       // DNI único
       const dniOcupado = empleados.some(
@@ -226,16 +240,23 @@ export default function EmpleadoEditar() {
 
       const dniLogin = dni;
 
-      await api.put(`/api/empleados/${id}/`, {
-        ...form,
-        emp_dni: dniLogin,
+      // Armamos payload SIN username y con password solo si se cambia
+      const payload = {
+        emp_nombre: form.emp_nombre,
+        emp_apellido: form.emp_apellido,
         emp_tel: tel,
         emp_correo: correo,
+        emp_dni: dniLogin,
         id_cargo_emp: Number(form.id_cargo_emp),
         id_estado_empleado: Number(form.id_estado_empleado),
-        username: dniLogin,
-        password: dniLogin,
-      });
+      };
+
+      if (pwd) {
+        payload.password = pwd; // se cambia contraseña
+      }
+      // username NO se envía: no se toca el login
+
+      await api.put(`/api/empleados/${id}/`, payload);
 
       setMsg("Empleado actualizado correctamente ✅");
       setErrors({});
@@ -398,29 +419,36 @@ export default function EmpleadoEditar() {
 
             <div className="form-group">
               <label htmlFor="username">
-                Usuario (para login - se usa el DNI)
+                Usuario (no se modifica al editar)
               </label>
               <input
                 id="username"
                 name="username"
-                value={form.emp_dni}
+                value={form.username}
                 readOnly
-                placeholder="Se completará con el DNI"
+                placeholder="Se mantiene el usuario actual"
               />
             </div>
 
             <div className="form-group">
               <label htmlFor="password">
-                Contraseña (para login - se usa el DNI)
+                Nueva contraseña (opcional)
               </label>
               <input
                 id="password"
                 name="password"
                 type="password"
-                value={form.emp_dni}
-                readOnly
-                placeholder="Se completará con el DNI"
+                value={form.password}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                maxLength={20}
+                placeholder="Dejar vacío para no cambiar"
               />
+              {errors.password && (
+                <small className="field-error">
+                  {errors.password}
+                </small>
+              )}
             </div>
           </div>
 
@@ -464,3 +492,4 @@ const formStyles = `
   .btn-secondary:hover { background-color: #4a4a4e; }
   .field-error { color: #fca5a5; font-size: 0.85rem; }
 `;
+

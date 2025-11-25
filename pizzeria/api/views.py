@@ -1,4 +1,6 @@
+# api/views.py
 from rest_framework.permissions import IsAuthenticated
+
 from rest_framework import viewsets, status
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 from decimal import Decimal
@@ -11,11 +13,15 @@ from django.db.models import F
 from django.db import connection
 from django.db.models import Sum
 from datetime import datetime
+from datetime import timedelta
 from django.utils.timezone import make_aware
+from django.utils.timezone import localdate
+from django.db.models.functions import TruncDate, TruncMonth, ExtractWeek, ExtractYear
 from rest_framework.views import APIView
 from django.db.models import Max, Sum, Case, When, Value, DecimalField
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
+from .permissions import RolePermission
 
 
 
@@ -126,6 +132,18 @@ def asegurar_caja_abierta():
         raise PermissionDenied(
             "La caja está CERRADA. Solo se permite consultar pedidos y ventas."
         )
+    
+# ──────────────────────────────────────────────────────────────────────────────
+# Base para ViewSets con control de roles
+# ──────────────────────────────────────────────────────────────────────────────
+class RoleProtectedViewSet(ModelViewSet):
+    """
+    ViewSet base que aplica:
+      - IsAuthenticated
+      - RolePermission (Mozo solo Pedidos, etc.)
+    """
+    permission_classes = [IsAuthenticated, RolePermission]
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Catálogos (para selects)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -157,10 +175,10 @@ class CategoriaProveedorViewSet(ReadOnlyModelViewSet):
 # ──────────────────────────────────────────────────────────────────────────────
 # Empleados
 # ──────────────────────────────────────────────────────────────────────────────
-class EmpleadosViewSet(ModelViewSet):
+class EmpleadosViewSet(RoleProtectedViewSet):
     queryset = Empleados.objects.all().order_by("-id_empleado")
     serializer_class = EmpleadosSerializer
-    permission_classes = [IsAuthenticated]
+    
 
     # GET /api/empleados/me/
     @action(detail=False, methods=["get"], url_path="me", permission_classes=[IsAuthenticated])
@@ -190,7 +208,7 @@ class EmpleadosViewSet(ModelViewSet):
 # ──────────────────────────────────────────────────────────────────────────────
 # Proveedores
 # ──────────────────────────────────────────────────────────────────────────────
-class ProveedorViewSet(ModelViewSet):
+class ProveedorViewSet(RoleProtectedViewSet):
     queryset = (
         Proveedores.objects
         .select_related("id_estado_prov", "id_categoria_prov")
@@ -198,21 +216,21 @@ class ProveedorViewSet(ModelViewSet):
         .order_by("-id_proveedor")
     )
     serializer_class = ProveedorSerializer
-    permission_classes = [IsAuthenticated]
+
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Clientes, Insumos, Platos, Pedidos, etc.
 # ──────────────────────────────────────────────────────────────────────────────
-class ClienteViewSet(ModelViewSet):
+class ClienteViewSet(RoleProtectedViewSet):
     queryset = Clientes.objects.all().order_by("-id_cliente")
     serializer_class = ClienteSerializer
-    permission_classes = [IsAuthenticated]
+    
 
-class InsumoViewSet(ModelViewSet):
+class InsumoViewSet(RoleProtectedViewSet):
     queryset = Insumos.objects.all().order_by("-id_insumo")
     serializer_class = InsumoSerializer
-    permission_classes = [IsAuthenticated]
+    
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -229,10 +247,10 @@ class InsumoViewSet(ModelViewSet):
         return super().update(request, *args, **kwargs)
 
 
-class PlatoViewSet(ModelViewSet):
+class PlatoViewSet(RoleProtectedViewSet):
     queryset = Platos.objects.all().order_by("-id_plato")
     serializer_class = PlatoSerializer
-    permission_classes = [IsAuthenticated]
+    
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -345,7 +363,7 @@ class PlatoViewSet(ModelViewSet):
         )
     
 
-class PedidoViewSet(ModelViewSet):
+class PedidoViewSet(RoleProtectedViewSet):
     queryset = (
         Pedidos.objects
         .select_related(
@@ -360,7 +378,7 @@ class PedidoViewSet(ModelViewSet):
         .order_by("-id_pedido")
     )
     serializer_class = PedidoSerializer
-    permission_classes = [IsAuthenticated]
+    
     
     @action(detail=True, methods=["post"], url_path="validar_stock_editar")
     def validar_stock_editar(self, request, pk=None):
@@ -1266,10 +1284,10 @@ class EstadoVentaViewSet(ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
 
-class VentaViewSet(ModelViewSet):
+class VentaViewSet(RoleProtectedViewSet):
     queryset = Ventas.objects.all().order_by("-id_venta")
     serializer_class = VentaSerializer
-    permission_classes = [IsAuthenticated]
+    
     # ------------------------------------------------------------------
     # /api/ventas/<id>/comprobante-pdf/
     # Genera un comprobante PDF (NO válido como factura)
@@ -1365,7 +1383,7 @@ class VentaViewSet(ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 # Detalle de venta
-class DetalleVentaViewSet(ModelViewSet):
+class DetalleVentaViewSet(RoleProtectedViewSet):
     queryset = (
         DetalleVentas.objects
         .select_related("id_venta", "id_plato")
@@ -1373,7 +1391,7 @@ class DetalleVentaViewSet(ModelViewSet):
         .order_by("-id_detalle_venta")
     )
     serializer_class = DetalleVentaSerializer
-    permission_classes = [IsAuthenticated]
+    
 
     # Permitir ?id_venta=<id> para listar/editar por cabecera
     def get_queryset(self):
@@ -1384,10 +1402,10 @@ class DetalleVentaViewSet(ModelViewSet):
         return qs
 
 
-class MovimientoCajaViewSet(ModelViewSet):
+class MovimientoCajaViewSet(RoleProtectedViewSet):
     queryset = MovimientosCaja.objects.all().order_by("-id_movimiento_caja")
     serializer_class = MovimientoCajaSerializer
-    permission_classes = [IsAuthenticated]
+    
 
     # POST /api/movimientos-caja/abrir  { "monto_inicial": 1000.00 }
     @action(detail=False, methods=["post"], url_path="abrir")
@@ -1461,22 +1479,22 @@ class MovimientoCajaViewSet(ModelViewSet):
         }
         return Response(data, status=200)
 
-class TipoPedidoViewSet(ModelViewSet):
+class TipoPedidoViewSet(RoleProtectedViewSet):
     queryset = TipoPedidos.objects.all().order_by("-id_tipo_pedido")
     serializer_class = TipoPedidoSerializer
-    permission_classes = [IsAuthenticated]
+    
 
-class EstadoPedidoViewSet(ModelViewSet):
+class EstadoPedidoViewSet(RoleProtectedViewSet):
     queryset = EstadoPedidos.objects.all().order_by("-id_estado_pedido")
     serializer_class = EstadoPedidoSerializer
-    permission_classes = [IsAuthenticated]
+    
 
-class MetodoPagoViewSet(ModelViewSet):
+class MetodoPagoViewSet(RoleProtectedViewSet):
     queryset = MetodoDePago.objects.all().order_by("-id_metodo_pago")
     serializer_class = MetodoPagoSerializer
-    permission_classes = [IsAuthenticated]
+    
 
-class RecetaViewSet(ModelViewSet):
+class RecetaViewSet(RoleProtectedViewSet):
     queryset = (
         Recetas.objects
         .select_related("id_plato", "id_estado_receta")
@@ -1485,7 +1503,7 @@ class RecetaViewSet(ModelViewSet):
         .order_by("-id_receta")
     )
     serializer_class = RecetaSerializer
-    permission_classes = [IsAuthenticated]
+    
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -1535,7 +1553,7 @@ class RecetaViewSet(ModelViewSet):
         return self.update(request, *args, **kwargs)
 
 
-class DetalleRecetaViewSet(ModelViewSet):
+class DetalleRecetaViewSet(RoleProtectedViewSet):
     queryset = (
         DetalleRecetas.objects
         .select_related("id_receta", "id_insumo")
@@ -1543,7 +1561,7 @@ class DetalleRecetaViewSet(ModelViewSet):
         .order_by("-id_detalle_receta")
     )
     serializer_class = DetalleRecetaSerializer
-    permission_classes = [IsAuthenticated]
+    
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -1559,17 +1577,17 @@ class DetalleRecetaViewSet(ModelViewSet):
 
 
 
-class CategoriaPlatoViewSet(ModelViewSet):
+class CategoriaPlatoViewSet(RoleProtectedViewSet):
     queryset = CategoriaPlatos.objects.all().order_by("-id_categoria_plato")
     serializer_class = CategoriaPlatoSerializer
-    permission_classes = [IsAuthenticated]
+    
 
-class EstadoRecetaViewSet(ModelViewSet):
+class EstadoRecetaViewSet(RoleProtectedViewSet):
     queryset = EstadoReceta.objects.all().order_by("id_estado_receta")
     serializer_class = EstadoRecetaSerializer
-    permission_classes = [IsAuthenticated]
+    
 
-class DetallePedidoViewSet(ModelViewSet):
+class DetallePedidoViewSet(RoleProtectedViewSet):
     queryset = (
         DetallePedidos.objects
         .select_related("id_pedido", "id_plato")
@@ -1577,17 +1595,17 @@ class DetallePedidoViewSet(ModelViewSet):
         .order_by("-id_detalle_pedido")
     )
     serializer_class = DetallePedidoSerializer
-    permission_classes = [IsAuthenticated]
+    
 
 class EstadoMesasViewSet(ReadOnlyModelViewSet):
     queryset = EstadoMesas.objects.all().order_by("id_estado_mesa")
     serializer_class = EstadoMesasSerializer
     permission_classes = [IsAuthenticated]
 
-class MesasViewSet(ModelViewSet):
+class MesasViewSet(RoleProtectedViewSet):
     queryset = Mesas.objects.all().order_by("-id_mesa")
     serializer_class = MesasSerializer
-    permission_classes = [IsAuthenticated]
+    
 
 class EstadoCompraViewSet(ReadOnlyModelViewSet):
     queryset = EstadoCompra.objects.all().order_by("id_estado_compra")
@@ -1595,7 +1613,7 @@ class EstadoCompraViewSet(ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
 
-class CompraViewSet(ModelViewSet):
+class CompraViewSet(RoleProtectedViewSet):
     queryset = (
         Compras.objects
         .select_related("id_empleado", "id_estado_compra", "id_proveedor")
@@ -1603,7 +1621,7 @@ class CompraViewSet(ModelViewSet):
         .order_by("-id_compra")
     )
     serializer_class = CompraSerializer
-    permission_classes = [IsAuthenticated]
+    
 
     def get_queryset(self):
         """
@@ -1618,7 +1636,7 @@ class CompraViewSet(ModelViewSet):
         return qs
 
 
-class DetalleCompraViewSet(ModelViewSet):
+class DetalleCompraViewSet(RoleProtectedViewSet):
     queryset = (
         DetalleCompra.objects
         .select_related("id_compra", "id_insumo")
@@ -1626,7 +1644,7 @@ class DetalleCompraViewSet(ModelViewSet):
         .order_by("-id_detalle_compra")
     )
     serializer_class = DetalleCompraSerializer
-    permission_classes = [IsAuthenticated]
+    
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -1763,7 +1781,7 @@ class DetalleCompraViewSet(ModelViewSet):
 
 
 
-class ProveedorInsumoViewSet(ModelViewSet):
+class ProveedorInsumoViewSet(RoleProtectedViewSet):
     """
     /api/proveedores-insumos/
       GET  ?id_proveedor=<id>  -> lista vínculos de un proveedor
@@ -1772,7 +1790,7 @@ class ProveedorInsumoViewSet(ModelViewSet):
       DELETE /api/proveedores-insumos/<id_prov_x_ins>/
     """
     serializer_class = ProveedorInsumoSerializer
-    permission_classes = [IsAuthenticated]
+    
 
     def get_queryset(self):
         qs = ProveedoresXInsumos.objects.select_related("id_proveedor", "id_insumo").order_by("-id_prov_x_ins")
@@ -1809,6 +1827,10 @@ class CajaEstadoView(APIView):
                   apertura_monto
                 + ingresos en EFECTIVO (solo de esta caja)
                 - egresos en EFECTIVO (solo de esta caja)
+            * totales_metodo:
+                - ingresos  (solo INGRESO)
+                - egresos   (solo EGRESO)
+                - total = ingresos - egresos
         """
         from decimal import Decimal
 
@@ -1827,7 +1849,6 @@ class CajaEstadoView(APIView):
             .order_by("mv_fecha_hora")
         )
 
-        # valores por defecto para que el front no rompa
         apertura_fecha = None
         apertura_empleado_nombre = "-"
 
@@ -1839,7 +1860,7 @@ class CajaEstadoView(APIView):
                 "apertura_monto": "0.00",
                 "hoy_saldo": "0.00",
                 "efectivo_disponible": "0.00",
-                "totales_metodo": {},
+                "totales_metodo": [],
                 "apertura_fecha": apertura_fecha,
                 "apertura_empleado_nombre": apertura_empleado_nombre,
             })
@@ -1863,7 +1884,7 @@ class CajaEstadoView(APIView):
                 "apertura_monto": "0.00",
                 "hoy_saldo": "0.00",
                 "efectivo_disponible": "0.00",
-                "totales_metodo": {},
+                "totales_metodo": [],
                 "apertura_fecha": apertura_fecha,
                 "apertura_empleado_nombre": apertura_empleado_nombre,
             })
@@ -1880,7 +1901,6 @@ class CajaEstadoView(APIView):
                 if full:
                     apertura_empleado_nombre = full
         except Exception:
-            # si algo falla, dejamos "-"
             apertura_empleado_nombre = "-"
 
         # Movimientos SOLO de la caja actual (desde la última apertura)
@@ -1898,34 +1918,39 @@ class CajaEstadoView(APIView):
         total_egresos = egresos_qs.aggregate(t=Sum("mv_monto"))["t"] or Decimal("0")
         hoy_saldo = total_ingresos - total_egresos
 
-        # Totales por método (informativo, por si lo necesitás)
+        # 🔹 Totales por método: separamos ingresos y egresos
         totales_metodo_qs = (
             movs_rango
             .values("id_metodo_pago", "id_metodo_pago__metpag_nombre")
             .annotate(
-                total=Sum(
+                ingresos=Sum(
                     Case(
-                        When(id_tipo_movimiento_caja_id__in=[
-                            TIPO_MOV_CAJA["INGRESO"],
-                            TIPO_MOV_CAJA["EGRESO"],
-                            TIPO_MOV_CAJA["APERTURA"],
-                            TIPO_MOV_CAJA["CIERRE"],
-                        ], then="mv_monto"),
+                        When(id_tipo_movimiento_caja_id=TIPO_MOV_CAJA["INGRESO"], then="mv_monto"),
                         default=Value(0),
                         output_field=DecimalField(),
                     )
-                )
+                ),
+                egresos=Sum(
+                    Case(
+                        When(id_tipo_movimiento_caja_id=TIPO_MOV_CAJA["EGRESO"], then="mv_monto"),
+                        default=Value(0),
+                        output_field=DecimalField(),
+                    )
+                ),
             )
         )
 
-        totales_metodo = [
-            {
+        totales_metodo = []
+        for fila in totales_metodo_qs:
+            ing = fila["ingresos"] or Decimal("0")
+            egr = fila["egresos"] or Decimal("0")
+            totales_metodo.append({
                 "id_metodo_pago": fila["id_metodo_pago"],
                 "nombre": fila["id_metodo_pago__metpag_nombre"] or "Sin método",
-                "total": float(fila["total"] or 0),
-            }
-            for fila in totales_metodo_qs
-        ]
+                "ingresos": float(ing),
+                "egresos": float(egr),
+                "total": float(ing - egr),
+            })
 
         # EFECTIVO disponible = apertura + ingresos efectivo - egresos efectivo (de esta caja)
         ingresos_efectivo = ingresos_qs.filter(
@@ -1948,6 +1973,7 @@ class CajaEstadoView(APIView):
             "apertura_fecha": apertura_fecha.isoformat() if apertura_fecha else None,
             "apertura_empleado_nombre": apertura_empleado_nombre,
         })
+
 
 
 
@@ -2019,7 +2045,7 @@ class CajaIngresosSemanalesView(APIView):
 # ──────────────────────────────────────────────────────────────────────────────
 # MOVIMIENTOS DE CAJA (corrige select_related, campos, empleado=usuario)
 # ──────────────────────────────────────────────────────────────────────────────
-class MovimientosCajaViewSet(viewsets.ModelViewSet):
+class MovimientosCajaViewSet(RoleProtectedViewSet):
     queryset = (
         MovimientosCaja.objects
         .select_related("id_empleado", "id_tipo_movimiento_caja", "id_metodo_pago", "id_venta")
@@ -2622,7 +2648,277 @@ class CajaHistorialDetalleView(APIView):
 
         return Response(data, status=200)
 
-class CategoriaProveedorViewSet(ModelViewSet): # <--- LA SOLUCIÓN
+class CategoriaProveedorViewSet(RoleProtectedViewSet): # <--- LA SOLUCIÓN
     queryset = CategoriaProveedores.objects.all().order_by("id_categoria_prov")
     serializer_class = CategoriaProveedorSerializer
+    
+
+class CajaIngresosRangoView(APIView):
+    def get(self, request):
+        from decimal import Decimal
+        inicio = request.GET.get("inicio")
+        fin = request.GET.get("fin")
+
+        if not inicio or not fin:
+            return Response({"detail": "Parámetros requeridos: inicio, fin"}, status=400)
+
+        qs = (
+            MovimientosCaja.objects
+            .filter(
+                mv_fecha_hora__date__range=(inicio, fin),
+                id_tipo_movimiento_caja_id=TIPO_MOV_CAJA["INGRESO"]
+            )
+            .values("mv_fecha_hora__date")
+            .annotate(total=Sum("mv_monto"))
+            .order_by("mv_fecha_hora__date")
+        )
+
+        data = [
+            {
+                "fecha": str(f["mv_fecha_hora__date"]),
+                "ingresos": float(f["total"] or Decimal("0"))
+            }
+            for f in qs
+        ]
+
+        return Response({"dias": data})
+
+class IngresosHistoricos(APIView):
+    """
+    Devuelve TODOS los ingresos históricos agrupados por día,
+    incluyendo días sin ingresos (como 0).
+    """
     permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from decimal import Decimal
+        from datetime import timedelta
+
+        # 1) Traemos todos los ingresos
+        movs = (
+            MovimientosCaja.objects
+            .filter(id_tipo_movimiento_caja_id=TIPO_MOV_CAJA["INGRESO"])
+            .exclude(mv_fecha_hora__isnull=True)
+            .order_by("mv_fecha_hora")
+        )
+
+        if not movs.exists():
+            return Response({"dias": []})
+
+        # 2) Rango desde la primera fecha hasta la última
+        fecha_inicio = movs.first().mv_fecha_hora.date()
+        fecha_fin = movs.last().mv_fecha_hora.date()
+
+        # 3) Sumamos ingresos por fecha
+        tot_por_dia = {}
+        for m in movs:
+            fecha = m.mv_fecha_hora.date()
+            tot_por_dia[fecha] = tot_por_dia.get(fecha, Decimal("0")) + (m.mv_monto or Decimal("0"))
+
+        # 4) Generamos todas las fechas del rango
+        dias = []
+        actual = fecha_inicio
+        while actual <= fecha_fin:
+            total = float(tot_por_dia.get(actual, Decimal("0")))
+            dias.append({
+                "fecha": actual.isoformat(),
+                "ingresos": total,
+            })
+            actual += timedelta(days=1)
+
+        return Response({"dias": dias})
+
+
+
+
+
+
+class IngresosSemanaActual(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        hoy = timezone.localdate()
+        # lunes de esta semana
+        lunes = hoy - timedelta(days=hoy.weekday())
+
+        qs = (
+            MovimientosCaja.objects
+            .filter(
+                id_tipo_movimiento_caja_id=2,  # Ingreso
+                mv_fecha_hora__date__gte=lunes,
+                mv_fecha_hora__date__lte=hoy,
+            )
+            .annotate(fecha=TruncDate("mv_fecha_hora"))
+            .values("fecha")
+            .annotate(total=Sum("mv_monto"))
+            .order_by("fecha")
+        )
+
+        dias = [
+            {
+                "fecha": item["fecha"].isoformat(),
+                "ingresos": float(item["total"] or 0.0),
+            }
+            for item in qs
+        ]
+
+        return Response({"dias": dias})
+
+class IngresosMesActualPorSemana(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from decimal import Decimal
+        from datetime import timedelta
+
+        hoy = timezone.localdate()
+        año = hoy.year
+        mes = hoy.month
+
+        # ─────────────────────────────────────────────
+        # 1) Traer todos los INGRESOS del mes actual
+        # ─────────────────────────────────────────────
+        movs = (
+            MovimientosCaja.objects
+            .filter(
+                id_tipo_movimiento_caja_id=TIPO_MOV_CAJA["INGRESO"],
+                mv_fecha_hora__year=año,
+                mv_fecha_hora__month=mes,
+            )
+            .exclude(mv_fecha_hora__isnull=True)
+            .order_by("mv_fecha_hora")
+        )
+
+        # 2) Sumar por día (YYYY-MM-DD)
+        tot_por_dia = {}  # { date(): Decimal }
+        for m in movs:
+            fecha = m.mv_fecha_hora.date()
+            tot_por_dia[fecha] = tot_por_dia.get(fecha, Decimal("0")) + (m.mv_monto or Decimal("0"))
+
+        # 3) Generar todos los días del mes (del 1 hasta HOY)
+        dias = []
+        inicio_mes = hoy.replace(day=1)
+        actual = inicio_mes
+        while actual <= hoy:
+            total = float(tot_por_dia.get(actual, Decimal("0")))
+            dias.append({
+                "fecha": actual.isoformat(),   # "2025-11-01", "2025-11-02", ...
+                "ingresos": total,
+            })
+            actual += timedelta(days=1)
+
+        # 4) (Opcional) seguir devolviendo también por semana del mes
+        #    Semana 1: días 1–7, Semana 2: 8–14, etc.
+        grupos_semana = {}  # { semanaMes: Decimal }
+        for item in dias:
+            # fecha ya viene como string YYYY-MM-DD
+            f_str = item["fecha"]
+            year, month, day = map(int, f_str.split("-"))
+            semana_mes = (day - 1) // 7 + 1   # 1..5
+            grupos_semana[semana_mes] = grupos_semana.get(semana_mes, 0.0) + item["ingresos"]
+
+        semanas = [
+            {
+                "semana": int(num),
+                "ingresos": float(total),
+            }
+            for num, total in sorted(grupos_semana.items(), key=lambda x: x[0])
+        ]
+
+        # Ahora devolvemos ambos:
+        # - "dias": para que puedas graficar día a día el mes (lo que me pediste)
+        # - "semanas": por si algo viejo seguía usando el formato anterior
+        return Response({
+            "dias": dias,
+            "semanas": semanas,
+        })
+
+
+class IngresosAnioActualPorMes(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        año = timezone.localdate().year
+
+        qs = (
+            MovimientosCaja.objects
+            .filter(
+                id_tipo_movimiento_caja_id=2,
+                mv_fecha_hora__year=año,
+            )
+            .annotate(mes=TruncMonth("mv_fecha_hora"))
+            .values("mes")
+            .annotate(total=Sum("mv_monto"))
+            .order_by("mes")
+        )
+
+        meses = [
+            {
+                "mes": item["mes"].isoformat(),             # 2025-11-01
+                "ingresos": float(item["total"] or 0.0),
+            }
+            for item in qs
+        ]
+
+        return Response({"meses": meses})
+
+class IngresosPorAnio(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = (
+            MovimientosCaja.objects
+            .filter(id_tipo_movimiento_caja_id=2)
+            .annotate(anio=ExtractYear("mv_fecha_hora"))
+            .values("anio")
+            .annotate(total=Sum("mv_monto"))
+            .order_by("anio")
+        )
+
+        años = [
+            {
+                "anio": int(item["anio"]),
+                "ingresos": float(item["total"] or 0.0),
+            }
+            for item in qs
+        ]
+
+        return Response({"años": años})
+
+class IngresosRango(APIView):
+    """
+    GET /api/caja/ingresos-rango/?start=2025-01-01&end=2025-03-31
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        start = request.GET.get("start")
+        end = request.GET.get("end")
+
+        if not start or not end:
+            return Response(
+                {"detail": "Debe enviar parámetros 'start' y 'end' en formato YYYY-MM-DD"},
+                status=400,
+            )
+
+        qs = (
+            MovimientosCaja.objects
+            .filter(
+                id_tipo_movimiento_caja_id=2,
+                mv_fecha_hora__date__range=[start, end],
+            )
+            .annotate(fecha=TruncDate("mv_fecha_hora"))
+            .values("fecha")
+            .annotate(total=Sum("mv_monto"))
+            .order_by("fecha")
+        )
+
+        dias = [
+            {
+                "fecha": item["fecha"].isoformat(),
+                "ingresos": float(item["total"] or 0.0),
+            }
+            for item in qs
+        ]
+
+        return Response({"dias": dias})

@@ -2,6 +2,8 @@ import math
 from rest_framework import serializers
 from django.core.validators import MinValueValidator
 from django.contrib.auth.models import User
+from django.contrib.auth.models import Group
+from django.contrib.auth import get_user_model
 from pizzeria.models import (
     Empleados, Clientes, Insumos, Platos, Pedidos,
     Ventas, MovimientosCaja, TipoPedidos, EstadoPedidos, MetodoDePago,
@@ -12,6 +14,8 @@ from pizzeria.models import (
     EstadoMesas, EstadoVentas, DetalleVentas
 )
 from django.utils import timezone
+
+User = get_user_model()
 # ──────────────────────────────────────────────────────────────────────────────
 # Catálogos para selects
 # ──────────────────────────────────────────────────────────────────────────────
@@ -47,8 +51,18 @@ class EmpleadosSerializer(serializers.ModelSerializer):
     cargo_nombre = serializers.SerializerMethodField(read_only=True)
     estado_nombre = serializers.SerializerMethodField(read_only=True)
 
-    username = serializers.CharField(write_only=True, required=False, allow_blank=True)
-    password = serializers.CharField(write_only=True, required=False, allow_blank=True, min_length=4)
+    username = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True
+    )
+    password = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        min_length=6,
+        max_length=20,
+    )
 
     class Meta:
         model = Empleados
@@ -59,6 +73,7 @@ class EmpleadosSerializer(serializers.ModelSerializer):
             "username", "password",
         ]
 
+    # ───────── helpers de lectura ─────────
     def get_cargo_nombre(self, obj):
         cargo = getattr(obj, "id_cargo_emp", None)
         if not cargo:
@@ -71,33 +86,187 @@ class EmpleadosSerializer(serializers.ModelSerializer):
             return None
         return getattr(est, "estemp_nombre", None) or str(est)
 
+    # ───────── validación de username única (soporta update) ─────────
     def validate_username(self, v):
         v = (v or "").strip()
-        if v and User.objects.filter(username__iexact=v).exists():
+        if not v:
+            return v
+
+        qs = User.objects.filter(username__iexact=v)
+        # si estoy editando, excluir mi propio usuario
+        if self.instance and getattr(self.instance, "usuario_id", None):
+            qs = qs.exclude(pk=self.instance.usuario_id)
+
+        if qs.exists():
             raise serializers.ValidationError("El nombre de usuario ya existe.")
         return v
 
+    # ───────── validación de contraseña (6 a 20 caracteres si viene) ─────────
+    def validate_password(self, value):
+        value = (value or "").strip()
+        if not value:
+            # en blanco => no se cambia / no se crea
+            return value
+        if len(value) < 6 or len(value) > 20:
+            raise serializers.ValidationError(
+                "La contraseña debe tener entre 6 y 20 caracteres."
+            )
+        return value
+
+    # ───────── lógica de creación ─────────
     def create(self, validated_data):
         username = (validated_data.pop("username", "") or "").strip()
         password = (validated_data.pop("password", "") or "").strip()
+
+        cargo = validated_data.get("id_cargo_emp")
+        estado = validated_data.get("id_estado_empleado")
+
+        # 1) crear empleado sin usuario
         empleado = Empleados.objects.create(**validated_data)
 
-        if username:
-            user = User.objects.create_user(username=username)
-            if password:
-                user.set_password(password)
-            if getattr(empleado, "emp_correo", None):
-                user.email = empleado.emp_correo
-            user.save()
-            empleado.usuario = user
-            empleado.save(update_fields=["usuario"])
+        if not username:
+            return empleado
+
+        # 2) crear usuario Django
+        user = User(
+            username=username,
+            email=empleado.emp_correo or "",
+            first_name=empleado.emp_nombre or "",
+            last_name=empleado.emp_apellido or "",
+            is_active=True,  # lo ajustamos abajo según estado
+        )
+
+        # admin: cargo id 5 o nombre "Administrador"
+        es_admin = False
+        if cargo:
+            nombre_cargo = (getattr(cargo, "carg_nombre", "") or "").strip().lower()
+            if nombre_cargo == "administrador" or cargo.id_cargo_emp == 5:
+                es_admin = True
+
+        if es_admin:
+            user.is_staff = True
+            user.is_superuser = True
+
+        if password:
+            user.set_password(password)
+        else:
+            # por si usás el DNI como username
+            user.set_password(username)
+
+        # activar/desactivar según estado del empleado (1 = Activo)
+        if estado and getattr(estado, "id_estado_empleado", None) != 1:
+            user.is_active = False
+
+        user.save()
+
+        # 3) group según cargo
+        if cargo:
+            group_name = (cargo.carg_nombre or "").strip()
+            if group_name:
+                group, _ = Group.objects.get_or_create(name=group_name)
+                user.groups.add(group)
+
+        empleado.usuario = user
+        empleado.save(update_fields=["usuario"])
 
         return empleado
 
+    # ───────── lógica de actualización ─────────
     def update(self, instance, validated_data):
+        # NO vamos a usar username para update (no se cambia al editar)
         validated_data.pop("username", None)
-        validated_data.pop("password", None)
-        return super().update(instance, validated_data)
+        new_password = (validated_data.pop("password", "") or "").strip()
+
+        old_cargo = instance.id_cargo_emp
+
+        # estado nuevo que viene (si no viene, usamos el actual)
+        new_estado = validated_data.get(
+            "id_estado_empleado",
+            instance.id_estado_empleado,
+        )
+
+        # 0) bloquear que me desactive a mí mismo
+        request = self.context.get("request")
+        current_user = getattr(request, "user", None)
+
+        if (
+            current_user
+            and current_user.is_authenticated
+            and instance.usuario is not None
+            and instance.usuario == current_user
+        ):
+            # si pasa de activo (1) a algo distinto de 1 -> no permitir
+            estado_actual_id = getattr(
+                instance.id_estado_empleado, "id_estado_empleado", None
+            )
+            nuevo_estado_id = getattr(new_estado, "id_estado_empleado", None)
+            if estado_actual_id == 1 and nuevo_estado_id is not None and nuevo_estado_id != 1:
+                raise serializers.ValidationError(
+                    {
+                        "id_estado_empleado": "No podés desactivar el empleado con el que estás logueado."
+                    }
+                )
+
+        # 1) actualizar datos básicos del empleado (incluye id_cargo_emp, id_estado_empleado, emp_dni, etc.)
+        empleado = super().update(instance, validated_data)
+        new_cargo = empleado.id_cargo_emp
+        user = empleado.usuario
+
+        # si no tiene usuario, no hacemos nada extra
+        if not user:
+            return empleado
+
+        # 🔹 NO cambiamos user.username aquí, aunque cambie el DNI
+
+        # cambiar contraseña solo si viene algo
+        if new_password:
+            user.set_password(new_password)
+
+        # sincronizar datos básicos
+        user.email = empleado.emp_correo or ""
+        user.first_name = empleado.emp_nombre or ""
+        user.last_name = empleado.emp_apellido or ""
+
+        # 2) actualizar groups según cambio de cargo
+        if old_cargo and old_cargo != new_cargo:
+            old_name = (old_cargo.carg_nombre or "").strip()
+            if old_name:
+                try:
+                    old_group = Group.objects.get(name=old_name)
+                    user.groups.remove(old_group)
+                except Group.DoesNotExist:
+                    pass
+
+        if new_cargo:
+            new_name = (new_cargo.carg_nombre or "").strip()
+            if new_name:
+                new_group, _ = Group.objects.get_or_create(name=new_name)
+                user.groups.add(new_group)
+
+        # 3) setear o quitar permisos de admin según nuevo cargo
+        es_admin_nuevo = False
+        if new_cargo:
+            nombre_cargo = (new_cargo.carg_nombre or "").strip().lower()
+            if nombre_cargo == "administrador" or new_cargo.id_cargo_emp == 5:
+                es_admin_nuevo = True
+
+        if es_admin_nuevo:
+            user.is_staff = True
+            user.is_superuser = True
+        else:
+            user.is_staff = False
+            user.is_superuser = False
+
+        # 4) activar / desactivar el user según estado del empleado
+        estado_actual = empleado.id_estado_empleado
+        if estado_actual and getattr(estado_actual, "id_estado_empleado", None) == 1:
+            user.is_active = True
+        else:
+            user.is_active = False
+
+        user.save()
+
+        return empleado
 
 
 # ──────────────────────────────────────────────────────────────────────────────

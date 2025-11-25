@@ -9,7 +9,8 @@ from pizzeria.api.views import (
     CategoriaPlatoViewSet,EstadoRecetaViewSet,DetallePedidoViewSet,EstadoCompraViewSet,CompraViewSet,DetalleCompraViewSet,
     CompraViewSet,DetalleCompraViewSet,ProveedorInsumoViewSet,EstadoMesasViewSet,MesasViewSet,
     EstadoVentaViewSet,DetalleVentaViewSet,CajaEstadoView,CajaHistorialView,CajaHistorialDetalleView,CajaIngresosSemanalesView,
-    CategoriaProveedorViewSet,
+    CategoriaProveedorViewSet,CajaIngresosRangoView,IngresosHistoricos,IngresosSemanaActual,
+    IngresosMesActualPorSemana,IngresosAnioActualPorMes,IngresosPorAnio,IngresosRango,
 )
 
 router = DefaultRouter()
@@ -48,11 +49,18 @@ urlpatterns = [
     path("caja/estado/", CajaEstadoView.as_view(), name="caja-estado"),
     path("caja/historial/", CajaHistorialView.as_view(), name="caja-historial"),
     path("caja/historial/<int:cierre_id>/",CajaHistorialDetalleView.as_view(),name="caja-historial-detalle",),
-    path(
-        "caja/ingresos-semanales/",
-        CajaIngresosSemanalesView.as_view(),
-        name="caja-ingresos-semanales",
-    ),
+    path("caja/ingresos-semanales/",CajaIngresosSemanalesView.as_view(),name="caja-ingresos-semanales", ),
+    path("caja/ingresos-rango/", CajaIngresosRangoView.as_view()),
+    path("caja/ingresos-historicos/",IngresosHistoricos.as_view(),name="caja-ingresos-historicos",),
+    path("caja/ingresos-semana/", IngresosSemanaActual.as_view()),
+    path("caja/ingresos-mes-semanas/", IngresosMesActualPorSemana.as_view()),
+    path("caja/ingresos-anio-meses/", IngresosAnioActualPorMes.as_view()),
+    path("caja/ingresos-anios/", IngresosPorAnio.as_view()),
+    path("caja/ingresos-rango/", IngresosRango.as_view()),
+
+
+
+
 
 
     # ... (tus rutas de auth/me/logout/JWT si las tenés)

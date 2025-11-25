@@ -17,14 +17,27 @@ const norm = (s) =>
     .toLowerCase();
 
 // ─────────────────────────────────────────────────────────
-// Misma lógica de admin + fetch de “me” que venías usando
+// Roles
 // ─────────────────────────────────────────────────────────
 const isAdminUser = (u) => {
   if (!u) return false;
   const nombreCargo = norm(u.cargo_nombre);
   const idCargo = Number(u.id_cargo_emp ?? 0);
-  return nombreCargo === "administrador" || idCargo === 5 || u.is_superuser === true || u.is_staff === true;
+  return (
+    nombreCargo === "administrador" ||
+    idCargo === 5 ||
+    u.is_superuser === true ||
+    u.is_staff === true
+  );
 };
+
+// 👇 NUEVO: detectar Mozo
+const isMozoUser = (u) => {
+  if (!u) return false;
+  const nombreCargo = norm(u.cargo_nombre);
+  return nombreCargo === "mozo";
+};
+
 
 async function fetchUserWithCargo() {
   // Simplificado a /api/empleados/me/
@@ -124,8 +137,20 @@ export default function DashboardLayout({ children, topRight = null }) {
     window.location.href = "/login";
   };
 
-  const menuItems = useMemo(
-  () => [
+const menuItems = useMemo(() => {
+  // Si todavía no cargó el usuario, no mostramos nada para evitar parpadeos raros
+  if (!me) return [];
+
+  // 🧑‍🍳 MOZO: solo Inicio + Pedidos
+  if (isMozoUser(me)) {
+    return [
+      { key: "home", label: "Inicio", path: "/", icon: <FaHome /> },
+      { key: "pedidos", label: "Pedidos", path: "/pedidos", icon: <FaFileInvoice /> },
+    ];
+  }
+
+  // 🔧 Menú base para otros roles (no mozo)
+  const base = [
     { key: "home", label: "Inicio", path: "/", icon: <FaHome /> },
 
     // Operación diaria
@@ -134,34 +159,23 @@ export default function DashboardLayout({ children, topRight = null }) {
     { key: "caja", label: "Caja", path: "/caja", icon: <FaCashRegister /> },
     { key: "caja-historial", label: "Historial de caja", path: "/caja/historial", icon: <FaCashRegister /> },
     { key: "movimientos", label: "Movimientos", path: "/caja/movimientos", icon: <FaReceipt /> },
-    
-    
+  ];
 
-    // Stock / compras
-    { key: "inventario", label: "Inventario", path: "/inventario", icon: <FaBoxOpen /> },
-    { key: "compras", label: "Compras", path: "/compras", icon: <FaTruck /> },
+  // 👑 Si es admin, agregamos extras
+  if (isAdminUser(me)) {
+    base.push(
+      { key: "inventario", label: "Inventario", path: "/inventario", icon: <FaBoxOpen /> },
+      { key: "compras", label: "Compras", path: "/compras", icon: <FaTruck /> },
+      { key: "platos", label: "Menú", path: "/platos", icon: <FaClipboardList /> },
+      { key: "mesas", label: "Mesas", path: "/mesas", icon: <FaBoxes /> },
+      { key: "empleados", label: "Empleados", path: "/empleados", icon: <FaUsers /> },
+      { key: "proveedores", label: "Proveedores", path: "/proveedores", icon: <FaTruck /> },
+    );
+  }
 
-    // Cocina
-    { key: "platos", label: "Menú", path: "/platos", icon: <FaClipboardList /> },
-    
-    { key: "mesas", label: "Mesas", path: "/mesas", icon: <FaBoxes /> },
+  return base;
+}, [me]);
 
-    // Extras frecuentes (si ya tenés rutas)
-   
-
-    // Solo admin
-    ...(isAdminUser(me)
-      ? [
-          
-
-          { key: "empleados", label: "Empleados", path: "/empleados", icon: <FaUsers /> },
-          { key: "proveedores", label: "Proveedores", path: "/proveedores", icon: <FaTruck /> },
-          
-        ]
-      : []),
-  ],
-  [me]
-);
 
 
   const cargoNombre =
@@ -343,6 +357,8 @@ export default function DashboardLayout({ children, topRight = null }) {
     </>
   );
 }
+
+
 
 
 

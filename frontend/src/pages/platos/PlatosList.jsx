@@ -13,22 +13,45 @@ function normalizeResponse(respData) {
 }
 
 /* ==== chequear si el plato está en pedidos para bloquear desactivado ==== */
+/* ==== chequear si el plato está en pedidos para bloquear desactivado ==== */
 async function platoEstaEnPedidos(idPlato) {
+  const idNum = Number(idPlato);
+
   const tryEndpoints = [
     "/api/pedido-detalles/",
     "/api/detalle-pedidos/",
     "/api/detalles-pedido/",
     "/api/pedidos-detalle/",
   ];
+
   for (const ep of tryEndpoints) {
     try {
       const { data } = await api.get(ep, {
-        params: { id_plato: Number(idPlato), page_size: 1 },
+        params: { id_plato: idNum, page_size: 50 },
       });
       const list = normalizeResponse(data);
-      if (list.length > 0) return true;
-    } catch {}
+
+      // ⬇️ ACA está la diferencia importante:
+      const hayDeEstePlato =
+        Array.isArray(list) &&
+        list.some((it) => {
+          const platoId =
+            it.id_plato ??
+            it.plato ??
+            it.id_plato_id ??
+            (it.plato && it.plato.id_plato);
+
+          return Number(platoId) === idNum;
+        });
+
+      if (hayDeEstePlato) {
+        return true; // solo si REALMENTE hay detalles con ese plato
+      }
+    } catch {
+      // si ese endpoint falla, probamos el siguiente
+    }
   }
+
   // fallback: leer pedidos con items embebidos
   try {
     const { data } = await api.get("/api/pedidos/", {
@@ -39,14 +62,14 @@ async function platoEstaEnPedidos(idPlato) {
       const items = p.detalles || p.items || p.lineas || [];
       if (
         Array.isArray(items) &&
-        items.some(
-          (it) => Number(it.id_plato ?? it.plato) === Number(idPlato)
-        )
+        items.some((it) => Number(it.id_plato ?? it.plato ?? it.id_plato_id) === idNum)
       ) {
         return true;
       }
     }
   } catch {}
+
+  // si no encontramos NINGÚN detalle con ese plato, se puede desactivar
   return false;
 }
 
