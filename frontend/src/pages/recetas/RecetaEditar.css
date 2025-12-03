@@ -1,0 +1,109 @@
+/* 🔥 TODO lo de receta editar ahora está encapsulado */
+
+.receta-edit-header {
+  margin-bottom: 12px;
+}
+.receta-edit-header h2 {
+  color: #fff;
+  margin: 0;
+}
+
+.receta-edit-msg {
+  color: #facc15;
+  white-space: pre-wrap;
+}
+
+.receta-edit-form {
+  max-width: 900px;
+}
+
+.receta-edit-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.receta-edit-row label {
+  width: 220px;
+  color: #eaeaea;
+}
+
+.receta-edit-row input,
+.receta-edit-row select,
+.receta-edit-row textarea {
+  flex: 1;
+  background: #0f0f0f;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+/* tabla */
+.receta-edit-table-wrap {
+  overflow: auto;
+  margin-top: 6px;
+}
+
+.receta-edit-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #121212;
+  color: #eaeaea;
+}
+
+.receta-edit-table th,
+.receta-edit-table td {
+  border: 1px solid #232323;
+  padding: 10px;
+}
+
+.receta-edit-table select,
+.receta-edit-table input {
+  background: #0f0f0f;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+/* error inline */
+.receta-edit-err {
+  color: #fca5a5;
+  font-size: 12px;
+  display: block;
+  margin-top: 6px;
+}
+
+/* botones contenedor */
+.receta-edit-buttons {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+}
+
+/* 🔘 Botones solo de receta editar */
+.receta-edit-btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.receta-edit-btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.receta-edit-btn-secondary {
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+}
+
+

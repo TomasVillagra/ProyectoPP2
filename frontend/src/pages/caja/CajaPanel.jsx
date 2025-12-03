@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import apiDefault, { api as apiNamed } from "../../api/axios";
+
+import CajaPanelHeader from "../../components/caja/CajaPanelHeader";
+import CajaPanelEstadoCard from "../../components/caja/CajaPanelEstadoCard";
+import CajaPanelAbrirCard from "../../components/caja/CajaPanelAbrirCard";
+import CajaPanelAbiertaCard from "../../components/caja/CajaPanelAbiertaCard";
+import CajaPanelMovimientos from "../../components/caja/CajaPanelMovimientos";
+
+// 🔹 Gráfico de torta de ventas del día
+import SalesSummary from "../../components/home/SalesSummary";
+// 🔹 Gráfico histórico (semana/mes/año, etc.)
+import WeeklySalesChart from "../../components/home/WeeklySalesChart";
+
+import "./CajaPanel.css";
+
 const api = apiNamed || apiDefault;
 
 /* Helpers */
@@ -31,7 +45,7 @@ function fmtDate(dt) {
 
 export default function CajaPanel() {
   const [estado, setEstado] = useState(null); // {abierta: bool, ...}
-  const [metodos, setMetodos] = useState([]);
+  const [metodos, setMetodos] = useState([]); // (lo dejo por compatibilidad aunque no se use)
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
 
@@ -44,6 +58,12 @@ export default function CajaPanel() {
 
   const [page, setPage] = useState(1);
   const pageSize = 10;
+
+  // 🔹 estado de confirmación: "abrir" | "cerrar" | null
+  const [accionPendiente, setAccionPendiente] = useState(null);
+
+  // 🔹 datos para WeeklySalesChart (igual que en Home)
+  const [weekly, setWeekly] = useState([]); // [{fecha, ingresos}, ...]
 
   // 🔧 soporta totales_metodo como ARRAY o como OBJETO
   const totalesPorMetodo = useMemo(() => {
@@ -68,13 +88,23 @@ export default function CajaPanel() {
   const cargar = async () => {
     try {
       setLoading(true);
-      const [est, mets] = await Promise.all([
+
+      // 🔹 Traigo estado de caja, métodos de pago e ingresos históricos
+      const [est, mets, ingresosHist] = await Promise.all([
         api.get("/api/caja/estado/"),
         api.get("/api/metodos-pago/"),
+        api.get("/api/caja/ingresos-historicos/"),
       ]);
+
       console.log("Estado caja desde backend:", est.data);
       setEstado(est.data ?? null);
       setMetodos(Array.isArray(mets.data) ? mets.data : []);
+
+      const dias = Array.isArray(ingresosHist.data?.dias)
+        ? ingresosHist.data.dias
+        : [];
+      setWeekly(dias);
+
       setMsg("");
     } catch (e) {
       console.log("Error estado caja:", e.response?.data || e);
@@ -186,17 +216,15 @@ export default function CajaPanel() {
     }
   }, [abierta, aperturaFechaStr]);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil((movs?.length || 0) / pageSize)
-  );
+  const totalPages = Math.max(1, Math.ceil((movs?.length || 0) / pageSize));
 
   const pageData = useMemo(() => {
     const start = (page - 1) * pageSize;
     return movs.slice(start, start + pageSize);
   }, [movs, page]);
 
-  const abrirCaja = async () => {
+  // 🔹 función REAL que llama al backend para abrir la caja
+  const ejecutarAbrirCaja = async () => {
     if (loading) return;
 
     // chequeo al backend por si el estado del front se quedó viejo
@@ -205,6 +233,7 @@ export default function CajaPanel() {
       setEstado(est.data);
       if (est.data.abierta) {
         alert("La caja ya está abierta (según el servidor).");
+        setAccionPendiente(null);
         return;
       }
     } catch (e) {
@@ -227,6 +256,7 @@ export default function CajaPanel() {
         mv_descripcion: "Apertura de caja",
       });
       setMontoInicial("");
+      setAccionPendiente(null);
       await cargar();
       alert("Caja abierta.");
     } catch (e) {
@@ -235,7 +265,8 @@ export default function CajaPanel() {
     }
   };
 
-  const cerrarCaja = async () => {
+  // 🔹 función REAL que llama al backend para cerrar la caja
+  const ejecutarCerrarCaja = async () => {
     if (loading) return;
 
     // Releer estado directamente del backend ANTES de intentar cerrar
@@ -245,6 +276,7 @@ export default function CajaPanel() {
       setEstado(est.data);
       if (!est.data.abierta) {
         alert("La caja ya está cerrada (según el servidor).");
+        setAccionPendiente(null);
         return;
       }
     } catch (e) {
@@ -261,6 +293,7 @@ export default function CajaPanel() {
         id_tipo_movimiento_caja: 4, // 4 = Cierre
         mv_descripcion: "Cierre de caja",
       });
+      setAccionPendiente(null);
       await cargar();
       alert("Caja cerrada.");
     } catch (e) {
@@ -269,266 +302,121 @@ export default function CajaPanel() {
     }
   };
 
+  // 🔹 handlers que SOLO activan la confirmación
+  const solicitarAbrir = () => {
+    if (loading) return;
+    setAccionPendiente("abrir");
+  };
+
+  const solicitarCerrar = () => {
+    if (loading) return;
+    setAccionPendiente("cerrar");
+  };
+
+  // 🔹 fila de confirmación reutilizable
+  const renderConfirmRow = (tipo) => (
+    <div className="caja-panel-confirm-row">
+      <span className="caja-panel-confirm-text">
+        {tipo === "abrir"
+          ? "¿Confirmar apertura de caja?"
+          : "¿Confirmar cierre de caja?"}
+      </span>
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={() => setAccionPendiente(null)}
+      >
+        Cancelar
+      </button>
+      <button
+        type="button"
+        className="btn btn-primary"
+        onClick={tipo === "abrir" ? ejecutarAbrirCaja : ejecutarCerrarCaja}
+      >
+        Confirmar
+      </button>
+    </div>
+  );
+
   return (
     <DashboardLayout>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 12,
-        }}
-      >
-        <h2 style={{ margin: 0, color: "#fff" }}>Panel de Caja</h2>
-      </div>
+      {/* ✅ Scope para que el CSS no sea global */}
+      <div className="caja-panel-scope">
+        <CajaPanelHeader />
 
-      {loading && <p>Cargando estado de caja...</p>}
-      {msg && <p style={{ color: "#facc15" }}>{msg}</p>}
+        {loading && <p>Cargando estado de caja...</p>}
+        {msg && <p className="caja-panel-msg">{msg}</p>}
 
-      {!loading && (
-        <>
-          {/* Card principal: solo muestra estado */}
-          <div className="card-dark">
-            <div className="card-row">
-              <div>
-                <div className="label">Estado</div>
-                <div className={`badge ${abierta ? "ok" : "err"}`}>
-                  {abierta ? "Abierta" : "Cerrada"}
-                </div>
-              </div>
-            </div>
-          </div>
+        {!loading && (
+          <>
+            <CajaPanelEstadoCard abierta={abierta} />
 
-          {/* Si está cerrada → sólo permite abrir */}
-          {!abierta ? (
-            <div className="card-dark" style={{ marginTop: 12 }}>
-              <div className="label" style={{ marginBottom: 8 }}>
-                Abrir caja
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input
-                  className="input"
-                  placeholder="Monto inicial"
-                  value={montoInicial}
-                  onChange={(e) => setMontoInicial(e.target.value)}
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  style={{ maxWidth: 180 }}
+            {!abierta ? (
+              <>
+                {/* 🔹 Caja cerrada: card para apertura */}
+                <CajaPanelAbrirCard
+                  montoInicial={montoInicial}
+                  setMontoInicial={setMontoInicial}
+                  // ahora solo dispara la confirmación
+                  abrirCaja={solicitarAbrir}
                 />
-                <button className="btn btn-primary" onClick={abrirCaja}>
-                  Abrir caja
-                </button>
-              </div>
-            </div>
-          ) : (
-            // Si está abierta → muestra info de apertura + botón de cerrar
-            <div className="card-dark" style={{ marginTop: 12 }}>
-              <div className="label" style={{ marginBottom: 8 }}>
-                Caja abierta
-              </div>
 
-              {/* Datos de la apertura actual */}
-              <div className="card-row" style={{ marginTop: 8 }}>
-                <div>
-                  <div className="label">Fecha / hora de apertura</div>
-                  <div>{aperturaFechaHora}</div>
-                </div>
+                {/* 🔹 Botones Confirmar / Cancelar apertura */}
+                {accionPendiente === "abrir" && renderConfirmRow("abrir")}
+              </>
+            ) : (
+              <>
+                {/* 🔹 Caja abierta: datos + botón de cierre */}
+                <CajaPanelAbiertaCard
+                  aperturaFechaHora={aperturaFechaHora}
+                  aperturaEmpleado={aperturaEmpleado}
+                  aperturaMonto={aperturaMonto}
+                  efectivoDisponible={efectivoDisponible}
+                  // ahora solo dispara la confirmación
+                  cerrarCaja={solicitarCerrar}
+                  totalesPorMetodo={totalesPorMetodo}
+                  money={money}
+                />
 
-                <div>
-                  <div className="label">Empleado que abrió</div>
-                  <div>{aperturaEmpleado}</div>
-                </div>
+                {/* 🔹 Botones Confirmar / Cancelar cierre */}
+                {accionPendiente === "cerrar" && renderConfirmRow("cerrar")}
 
-                <div>
-                  <div className="label">Monto de apertura</div>
-                  <div>${money(aperturaMonto)}</div>
-                </div>
-
-                <div>
-                  <div className="label">Efectivo disponible</div>
-                  <div
-                    style={{
-                      fontWeight: 600,
-                      color:
-                        efectivoDisponible >= 0 ? "#22c55e" : "#f97316",
-                    }}
-                  >
-                    {efectivoDisponible >= 0 ? "+" : "-"}$
-                    {money(Math.abs(efectivoDisponible))}
+                {/* 🔹 Gráficos: torta + weekly, igual que en Home pero en CajaPanel */}
+                <div className="caja-panel-ventas-row">
+                  <div className="caja-panel-ventas-card">
+                    <SalesSummary
+                      ventasHoy={estado?.hoy_ingresos}
+                      metodosHoy={estado?.totales_metodo}
+                    />
+                  </div>
+                  <div className="caja-panel-ventas-card">
+                    <WeeklySalesChart data={weekly} />
                   </div>
                 </div>
-              </div>
+              </>
+            )}
 
-              {/* Referencia oculta a totalesPorMetodo para no generar warnings */}
-              <span style={{ display: "none" }}>
-                {Object.keys(totalesPorMetodo).length}
-              </span>
-
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  marginTop: 10,
-                }}
-              >
-                <button className="btn btn-secondary" onClick={cerrarCaja}>
-                  Cerrar caja
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* DataTable de movimientos de la CAJA ACTUAL (desde la apertura) */}
-          {abierta && (
-            <div className="card-dark" style={{ marginTop: 12 }}>
-              <div className="label" style={{ marginBottom: 8 }}>
-                Movimientos de la caja actual (desde la apertura)
-              </div>
-
-              {movsMsg && (
-                <p style={{ color: "#facc15", whiteSpace: "pre-wrap" }}>
-                  {movsMsg}
-                </p>
-              )}
-
-              {movsLoading ? (
-                <p>Cargando movimientos...</p>
-              ) : (
-                <>
-                  <div className="table-wrap">
-                    <table className="table-dark">
-                      <thead>
-                        <tr>
-                          <th>ID</th>
-                          <th>Fecha/Hora</th>
-                          <th>Tipo</th>
-                          <th>Venta</th>
-                          <th>Método pago</th>
-                          <th>Monto</th>
-                          <th>Descripción</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pageData.length === 0 && (
-                          <tr>
-                            <td colSpan="7" style={{ textAlign: "center" }}>
-                              Sin registros en esta caja.
-                            </td>
-                          </tr>
-                        )}
-                        {pageData.map((m) => (
-                          <tr
-                            key={
-                              m.id_movimiento_caja ??
-                              m.id_movimiento ??
-                              m.id
-                            }
-                          >
-                            <td>
-                              {m.id_movimiento_caja ??
-                                m.id_movimiento ??
-                                m.id}
-                            </td>
-                            <td>
-                              {fmtDate(
-                                m.mv_fecha_hora ??
-                                  m.mov_fecha_hora ??
-                                  m.fecha ??
-                                  m.created_at
-                              )}
-                            </td>
-                            <td>
-                              {m.tipo_nombre ??
-                                m.tipmov_nombre ??
-                                m.id_tipo_movimiento_caja}
-                            </td>
-                            <td>{m.id_venta ?? m.venta_id ?? "-"}</td>
-                            <td>
-                              {m.metodo_pago_nombre ??
-                                m.metpag_nombre ??
-                                m.id_metodo_pago ??
-                                "-"}
-                            </td>
-                            <td>
-                              ${money(
-                                m.mv_monto ??
-                                  m.mov_monto ??
-                                  m.monto ??
-                                  0
-                              )}
-                            </td>
-                            <td>
-                              {m.mv_descripcion ??
-                                m.mov_descripcion ??
-                                "-"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 8,
-                      justifyContent: "flex-end",
-                      marginTop: 10,
-                    }}
-                  >
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() =>
-                        setPage((p) => Math.max(1, p - 1))
-                      }
-                    >
-                      ◀
-                    </button>
-                    <div
-                      className="btn btn-secondary"
-                      style={{ cursor: "default" }}
-                    >
-                      Página {page} / {totalPages}
-                    </div>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() =>
-                        setPage((p) =>
-                          Math.min(totalPages, p + 1)
-                        )
-                      }
-                    >
-                      ▶
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </>
-      )}
-
-      <style>{styles}</style>
+            {abierta && (
+              <CajaPanelMovimientos
+                movsLoading={movsLoading}
+                movsMsg={movsMsg}
+                pageData={pageData}
+                page={page}
+                totalPages={totalPages}
+                setPage={setPage}
+                money={money}
+                fmtDate={fmtDate}
+              />
+            )}
+          </>
+        )}
+      </div>
     </DashboardLayout>
   );
 }
 
-const styles = `
-.label { color:#aaa; font-size:14px; }
-.card-dark { background:#121212; border:1px solid #232323; border-radius:10px; padding:12px; }
-.card-row { display:flex; gap:18px; flex-wrap:wrap; }
-.badge { display:inline-block; padding:4px 8px; border-radius:999px; font-weight:700; }
-.badge.ok { background:#14532d; color:#a7f3d0; }
-.badge.err { background:#7f1d1d; color:#fecaca; }
-.input { background:#0f0f10; color:#fff; border:1px solid #2a2a2a; border-radius:8px; padding:8px; }
-.table-wrap { overflow:auto; margin-top:8px; }
-.table-dark { width:100%; border-collapse: collapse; background:#121212; color:#eaeaea; }
-.table-dark th, .table-dark td { border:1px solid #232323; padding:10px; vertical-align:top; }
-.btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
-.btn-primary { background:#2563eb; color:#fff; }
-.btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
-`;
+
+
 
 
 

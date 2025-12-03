@@ -1,10 +1,27 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { useNavigate, useParams, Link, useLocation } from "react-router-dom";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+  useRef,
+} from "react";
+import {
+  useNavigate,
+  useParams,
+  Link,
+  useLocation,
+} from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 
+import ProveedorInsumosHeader from "../../components/proveedores/ProveedorInsumosHeader";
+import ProveedorInsumosVincular from "../../components/proveedores/ProveedorInsumosVincular";
+import ProveedorInsumosTable from "../../components/proveedores/ProveedorInsumosTable";
+
+import "./ProveedorInsumos.css";
+
 export default function ProveedorInsumos() {
-  const { id } = useParams();                 // id_proveedor
+  const { id } = useParams(); // id_proveedor
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -35,14 +52,20 @@ export default function ProveedorInsumos() {
   const [editingRow, setEditingRow] = useState(null); // pk de la relación
   const [editingPrice, setEditingPrice] = useState("");
 
-  // === NUEVO: Conjuntos para bloquear acciones ===
+  // === Conjuntos para bloquear acciones ===
   // insumos que aparecen en CUALQUIER compra del proveedor (bloquea QUITAR)
-  const [insumosUsadosEnCompras, setInsumosUsadosEnCompras] = useState(new Set());
+  const [insumosUsadosEnCompras, setInsumosUsadosEnCompras] = useState(
+    new Set()
+  );
   // insumos que aparecen en compras del proveedor con estado "En proceso" (bloquea EDITAR PRECIO)
   const [insumosEnProceso, setInsumosEnProceso] = useState(new Set());
 
   const norm = (d) =>
-    Array.isArray(d?.results) ? d.results : (Array.isArray(d) ? d : d?.data || []);
+    Array.isArray(d?.results)
+      ? d.results
+      : Array.isArray(d)
+      ? d
+      : d?.data || [];
 
   // Quita acentos, espacios y pasa a minúsculas
   const nrmText = (t) =>
@@ -85,7 +108,9 @@ export default function ProveedorInsumos() {
         setInsumosAll(norm(insRes));
       } catch (e) {
         console.error(e);
-        setMsg("No se pudo cargar la información del proveedor.");
+        setMsg(
+          "No se pudo cargar la información del proveedor."
+        );
       } finally {
         setLoading(false);
       }
@@ -100,14 +125,18 @@ export default function ProveedorInsumos() {
     }
   }, [location, navigate]);
 
-  // ---------- NUEVO: Cargar compras y calcular bloqueos ----------
+  // ---------- Cargar compras y calcular bloqueos ----------
   const refreshComprasBloqueos = useCallback(async () => {
     try {
       // 1) Traer compras SOLO del proveedor actual
-      const comprasRes = await api.get(`/api/compras/?id_proveedor=${id}`);
+      const comprasRes = await api.get(
+        `/api/compras/?id_proveedor=${id}`
+      );
       const compras = Array.isArray(comprasRes.data)
         ? comprasRes.data
-        : (comprasRes.data?.results || comprasRes.data || []);
+        : comprasRes.data?.results ||
+          comprasRes.data ||
+          [];
 
       if (!compras.length) {
         setInsumosUsadosEnCompras(new Set());
@@ -120,25 +149,27 @@ export default function ProveedorInsumos() {
 
       await Promise.all(
         compras.map(async (c) => {
-
-          // MUY IMPORTANTE: validar proveedor por seguridad
+          // validar proveedor por seguridad
           const provCompra =
             Number(c.id_proveedor) ||
             Number(c.proveedor_id) ||
             Number(c.id_proveedor_id);
 
           if (provCompra !== Number(id)) {
-            // no bloquear si esta compra no pertenece a este proveedor
             return;
           }
 
           const idCompra = c.id_compra ?? c.id;
           if (!idCompra) return;
 
-          const detRes = await api.get(`/api/detalle-compras/?id_compra=${idCompra}`);
+          const detRes = await api.get(
+            `/api/detalle-compras/?id_compra=${idCompra}`
+          );
           const detalle = Array.isArray(detRes.data)
             ? detRes.data
-            : (detRes.data?.results || detRes.data || []);
+            : detRes.data?.results ||
+              detRes.data ||
+              [];
 
           // Agregar insumos usados
           detalle.forEach((d) => {
@@ -152,7 +183,9 @@ export default function ProveedorInsumos() {
           });
 
           // ¿La compra está EN PROCESO?
-          const est = (c.estado_nombre || c.estcom_nombre || "").toLowerCase();
+          const est = (
+            c.estado_nombre || c.estcom_nombre || ""
+          ).toLowerCase();
           const esEnProc = est.includes("proceso");
 
           if (esEnProc) {
@@ -169,56 +202,57 @@ export default function ProveedorInsumos() {
         })
       );
 
-      setInsumosUsadosEnCompras(usados);   // bloquea quitar
-      setInsumosEnProceso(enProceso);      // bloquea editar precio
-
+      setInsumosUsadosEnCompras(usados); // bloquea quitar
+      setInsumosEnProceso(enProceso); // bloquea editar precio
     } catch (e) {
-      console.error("Error bloqueos compras proveedor:", e);
+      console.error(
+        "Error bloqueos compras proveedor:",
+        e
+      );
       setInsumosUsadosEnCompras(new Set());
       setInsumosEnProceso(new Set());
     }
   }, [id]);
-
 
   // Cargar bloqueos después de cargar relaciones
   useEffect(() => {
     refreshComprasBloqueos();
   }, [refreshComprasBloqueos, relaciones]);
 
-  const vinculadosIds = new Set((relaciones || []).map((r) => Number(r.id_insumo)));
+  const vinculadosIds = new Set(
+    (relaciones || []).map((r) => Number(r.id_insumo))
+  );
 
-  // === NUEVO: solo insumos ACTIVO en el combo ===
+  // solo insumos ACTIVO en el combo
   const isInsumoActivo = (i) => {
     const nombreEstado = String(
       i.estado_nombre ??
-      i.estins_nombre ??
-      i.estado ??
-      i.ins_estado ??
-      ""
+        i.estins_nombre ??
+        i.estado ??
+        i.ins_estado ??
+        ""
     ).toLowerCase();
 
     if (nombreEstado) {
-      // si viene "Activo", "ACTIVO", etc.
       return nombreEstado.includes("activo");
     }
 
     const idEstado = Number(
       i.id_estado_insumo ??
-      i.estado_insumo_id ??
-      i.id_estado ??
-      0
+        i.estado_insumo_id ??
+        i.id_estado ??
+        0
     );
     if (idEstado) {
-      // asumiendo 1 = Activo
       return idEstado === 1;
     }
-
-    // si no tenemos info del estado, por no romper, lo dejamos pasar
     return true;
   };
 
   const insumosDisponibles = (insumosAll || []).filter(
-    (i) => !vinculadosIds.has(Number(i.id_insumo)) && isInsumoActivo(i)
+    (i) =>
+      !vinculadosIds.has(Number(i.id_insumo)) &&
+      isInsumoActivo(i)
   );
 
   // filtro del buscador (nombre, unidad, código o id)
@@ -226,12 +260,7 @@ export default function ProveedorInsumos() {
     (i) => {
       if (!q) return true;
       const qn = nrmText(q);
-      return [
-        i.ins_nombre,
-        i.ins_unidad,
-        i.codigo,         // si tu modelo tiene "codigo"
-        i.id_insumo,
-      ]
+      return [i.ins_nombre, i.ins_unidad, i.codigo, i.id_insumo]
         .map((v) => nrmText(v))
         .some((txt) => txt.includes(qn));
     },
@@ -244,16 +273,22 @@ export default function ProveedorInsumos() {
   );
 
   // helpers
-  const getRelPk = (r) => r.id_prov_x_ins || r.id_proveedor_insumo || r.id || r.pk;
+  const getRelPk = (r) =>
+    r.id_prov_x_ins ||
+    r.id_proveedor_insumo ||
+    r.id ||
+    r.pk;
 
   const isValidPrice = (val) => {
-    if (val === "" || val === null || typeof val === "undefined") return false;
+    if (val === "" || val === null || typeof val === "undefined")
+      return false;
     const num = Number(String(val).replace(",", "."));
     if (Number.isNaN(num)) return false;
     if (num < 0) return false;
-    // hasta 3 decimales
     const parts = String(val).replace(",", ".").split(".");
-    return parts.length === 1 || (parts[1]?.length ?? 0) <= 3;
+    return (
+      parts.length === 1 || (parts[1]?.length ?? 0) <= 3
+    );
   };
 
   const toPriceStr = (val) => {
@@ -262,7 +297,7 @@ export default function ProveedorInsumos() {
     return num.toFixed(3); // Decimal(12,3)
   };
 
-  // === NUEVO: mínimo de precio > 100 ===
+  // mínimo de precio > 100
   const MIN_PRICE = 100;
 
   const isPriceAtLeastMin = (val) => {
@@ -272,7 +307,9 @@ export default function ProveedorInsumos() {
   };
 
   const refreshRel = async () => {
-    const relRes = await api.get(`/api/proveedores-insumos/?id_proveedor=${id}`);
+    const relRes = await api.get(
+      `/api/proveedores-insumos/?id_proveedor=${id}`
+    );
     setRelaciones(norm(relRes));
   };
 
@@ -282,8 +319,13 @@ export default function ProveedorInsumos() {
       setMsg("Elegí un insumo para vincular.");
       return;
     }
-    if (!isValidPrice(priceInput) || !isPriceAtLeastMin(priceInput)) {
-      setMsg("Ingresá un precio válido (> 100, hasta 3 decimales).");
+    if (
+      !isValidPrice(priceInput) ||
+      !isPriceAtLeastMin(priceInput)
+    ) {
+      setMsg(
+        "Ingresá un precio válido (> 100, hasta 3 decimales)."
+      );
       priceRef.current?.focus();
       return;
     }
@@ -294,7 +336,7 @@ export default function ProveedorInsumos() {
         precio_unitario: toPriceStr(priceInput),
       });
       await refreshRel();
-      await refreshComprasBloqueos(); // recalcular bloqueos
+      await refreshComprasBloqueos();
       setSelInsumo("");
       setQ("");
       setPriceInput("");
@@ -308,54 +350,72 @@ export default function ProveedorInsumos() {
     }
   };
 
-  // ---------- Quitar relación con bloqueos ----------
+  // Quitar relación con bloqueos
   const handleQuitar = async (rel) => {
     setMsg("");
     try {
       const insumoId = Number(rel.id_insumo);
-      // Si el insumo aparece en alguna compra del proveedor, bloquear
       if (insumosUsadosEnCompras.has(insumoId)) {
-        setMsg("No se puede quitar el insumo: está asociado a una o más compras de este proveedor.");
+        setMsg(
+          "No se puede quitar el insumo: está asociado a una o más compras de este proveedor."
+        );
         return;
       }
 
       const pk = getRelPk(rel);
-      await api.delete(`/api/proveedores-insumos/${pk}/`);
+      await api.delete(
+        `/api/proveedores-insumos/${pk}/`
+      );
       await refreshRel();
       await refreshComprasBloqueos();
       setMsg("Insumo desvinculado del proveedor.");
     } catch (e) {
       console.error(e);
-      setMsg("No se pudo quitar el insumo del proveedor.");
+      setMsg(
+        "No se pudo quitar el insumo del proveedor."
+      );
     }
   };
 
-  // --- Interacción teclado del combobox ---
+  // Interacción teclado del combobox
   const onKeyDown = (e) => {
-    if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    if (
+      !open &&
+      (e.key === "ArrowDown" || e.key === "ArrowUp")
+    ) {
       setOpen(true);
       return;
     }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((idx) => Math.min(idx + 1, insumosFiltrados.length - 1));
+      setActive((idx) =>
+        Math.min(idx + 1, insumosFiltrados.length - 1)
+      );
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((idx) => Math.max(idx - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (open && active >= 0 && insumosFiltrados[active]) {
-        // ✅ Selecciona (no vincula)
         const item = insumosFiltrados[active];
         setSelInsumo(item.id_insumo);
-        setQ(`${item.ins_nombre}${item.ins_unidad ? ` (${item.ins_unidad})` : ""}`);
+        setQ(
+          `${item.ins_nombre}${
+            item.ins_unidad ? ` (${item.ins_unidad})` : ""
+          }`
+        );
         setOpen(false);
         setActive(-1);
-        // Enfocar precio para que lo cargues y luego vincules
-        setTimeout(() => priceRef.current?.focus(), 0);
+        setTimeout(
+          () => priceRef.current?.focus(),
+          0
+        );
       } else if (!open) {
-        // si la lista está cerrada y ya hay insumo seleccionado, si el precio es válido recién vincula
-        if (selInsumo && isValidPrice(priceInput) && isPriceAtLeastMin(priceInput)) {
+        if (
+          selInsumo &&
+          isValidPrice(priceInput) &&
+          isPriceAtLeastMin(priceInput)
+        ) {
           handleVincular();
         } else {
           priceRef.current?.focus();
@@ -376,8 +436,12 @@ export default function ProveedorInsumos() {
       const itemTop = item.offsetTop;
       const itemBot = itemTop + item.offsetHeight;
       if (itemTop < list.scrollTop) list.scrollTop = itemTop;
-      else if (itemBot > list.scrollTop + list.clientHeight)
-        list.scrollTop = itemBot - list.clientHeight;
+      else if (
+        itemBot >
+        list.scrollTop + list.clientHeight
+      )
+        list.scrollTop =
+          itemBot - list.clientHeight;
     }
   }, [active, open]);
 
@@ -391,362 +455,63 @@ export default function ProveedorInsumos() {
 
   return (
     <DashboardLayout>
-      <div className="page-header">
-        <div>
-          <h2>Insumos del Proveedor #{id}</h2>
-          <p className="sub">{prov?.prov_nombre ?? "-"}</p>
-        </div>
-        <div className="header-actions">
-          <Link to="/proveedores" className="btn btn-secondary">Volver</Link>
-        </div>
+      <div className="prov-ins-container">
+        <ProveedorInsumosHeader
+          id={id}
+          nombre={prov?.prov_nombre ?? "-"}
+        />
+
+        {msg && (
+          <p className="prov-ins-notice">{msg}</p>
+        )}
+
+        <ProveedorInsumosVincular
+          id={id}
+          q={q}
+          setQ={setQ}
+          open={open}
+          setOpen={setOpen}
+          active={active}
+          setActive={setActive}
+          inputRef={inputRef}
+          listRef={listRef}
+          clickingListRef={clickingListRef}
+          priceInput={priceInput}
+          setPriceInput={setPriceInput}
+          priceRef={priceRef}
+          selInsumo={selInsumo}
+          setSelInsumo={setSelInsumo}
+          insumosFiltrados={insumosFiltrados}
+          insumosDisponibles={insumosDisponibles}
+          handleVincular={handleVincular}
+          isValidPrice={isValidPrice}
+          isPriceAtLeastMin={isPriceAtLeastMin}
+          onKeyDown={onKeyDown}
+        />
+
+        <ProveedorInsumosTable
+          relaciones={relaciones}
+          insumoById={insumoById}
+          getRelPk={getRelPk}
+          editingRow={editingRow}
+          setEditingRow={setEditingRow}
+          editingPrice={editingPrice}
+          setEditingPrice={setEditingPrice}
+          isValidPrice={isValidPrice}
+          isPriceAtLeastMin={isPriceAtLeastMin}
+          toPriceStr={toPriceStr}
+          refreshRel={refreshRel}
+          refreshComprasBloqueos={refreshComprasBloqueos}
+          handleQuitar={handleQuitar}
+          insumosUsadosEnCompras={insumosUsadosEnCompras}
+          insumosEnProceso={insumosEnProceso}
+          setMsg={setMsg}
+        />
       </div>
-
-      {msg && <p className="notice">{msg}</p>}
-
-      {/* Vincular existente */}
-      <div className="card">
-        <h3 style={{ marginTop: 0 }}>Vincular insumo</h3>
-
-        {/* COMBOBOX + PRECIO OBLIGATORIO */}
-        <div className="combo">
-          <div
-            className="combo-input-wrap"
-            role="combobox"
-            aria-expanded={open}
-            aria-controls="insumo-listbox"
-            aria-owns="insumo-listbox"
-            aria-haspopup="listbox"
-          >
-            <input
-              ref={inputRef}
-              type="text"
-              className="combo-input"
-              placeholder="Buscar insumo por nombre, unidad, código o ID…"
-              value={q}
-              onChange={(e) => {
-                setQ(e.target.value);
-                setOpen(true);
-                setActive(0);
-                setSelInsumo(""); // si cambiaste el texto, resetea selección previa
-              }}
-              onFocus={() => setOpen(true)}
-              onBlur={() => {
-                // cierre suave: si estamos clickeando dentro de la lista, no cerrar
-                setTimeout(() => {
-                  if (clickingListRef.current) {
-                    clickingListRef.current = false;
-                  } else {
-                    setOpen(false);
-                  }
-                }, 0);
-              }}
-              onKeyDown={onKeyDown}
-            />
-            <input
-              ref={priceRef}
-              type="number"
-              step="0.001"
-              min="0"
-              className="price-input"
-              placeholder="Precio (ej. 123.450)"
-              value={priceInput}
-              onChange={(e) => setPriceInput(e.target.value)}
-              title="Precio unitario (> 100, obligatorio)"
-            />
-            <button
-              className="btn btn-primary"
-              disabled={
-                !selInsumo ||
-                !isValidPrice(priceInput) ||
-                !isPriceAtLeastMin(priceInput)
-              }
-              onClick={handleVincular}
-              title="Vincular insumo seleccionado con precio"
-            >
-              Vincular
-            </button>
-            <span className="search-count">
-              {insumosFiltrados.length} de {insumosDisponibles.length}
-            </span>
-          </div>
-
-          {open && (
-            <div
-              id="insumo-listbox"
-              ref={listRef}
-              role="listbox"
-              className="combo-list"
-              // marcamos que estamos clickeando en la lista para evitar cerrar por blur
-              onMouseDownCapture={() => { clickingListRef.current = true; }}
-            >
-              {insumosFiltrados.map((i, idx) => (
-                <div
-                  key={i.id_insumo}
-                  role="option"
-                  aria-selected={idx === active}
-                  className={`combo-option ${idx === active ? "is-active" : ""}`}
-                  onMouseEnter={() => setActive(idx)}
-                  onMouseDown={(e) => {
-                    e.preventDefault(); // evita perder foco del input antes de seleccionar
-                    // ✅ Solo selecciona, no vincula
-                    setSelInsumo(i.id_insumo);
-                    setQ(`${i.ins_nombre}${i.ins_unidad ? ` (${i.ins_unidad})` : ""}`);
-                    setOpen(false);
-                    setActive(-1);
-                    // listo para cargar precio
-                    setTimeout(() => priceRef.current?.focus(), 0);
-                  }}
-                >
-                  <div className="opt-title">
-                    {i.ins_nombre}
-                    {i.ins_unidad ? <span className="opt-unit">({i.ins_unidad})</span> : null}
-                  </div>
-                  <div className="opt-meta">
-                    <span>ID: {i.id_insumo}</span>
-                    {typeof i.ins_stock_actual !== "undefined" && (
-                      <span>• Stock: {i.ins_stock_actual}</span>
-                    )}
-                    {i.codigo ? <span>• Cód: {i.codigo}</span> : null}
-                  </div>
-                </div>
-              ))}
-
-              {insumosFiltrados.length === 0 && (
-                <div className="combo-empty">
-                  <div>No se encontraron insumos que coincidan con “{q}”.</div>
-                  <Link
-                    to="/inventario/registrar"
-                    state={{ backTo: `/proveedores/${id}/insumos` }}
-                    className="btn btn-secondary btn-small"
-                    onMouseDown={(e) => e.preventDefault()}
-                  >
-                    Crear insumo…
-                  </Link>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <small className="muted">
-          Elegí un insumo, cargá el <strong>precio</strong> (mayor a 100) y tocá <strong>Vincular</strong>. Con <strong>↑/↓</strong> navegás y con <strong>Enter</strong> seleccionás.
-        </small>
-      </div>
-
-      {/* Lista vinculados */}
-      <div className="table-container">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Insumo</th>
-              <th>Unidad</th>
-              <th>Capacidad</th>
-              <th>Precio</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(relaciones || []).map((r) => {
-              const ins = insumoById.get(Number(r.id_insumo)) || {};
-              const pk = getRelPk(r);
-              const isEditing = editingRow === pk;
-              const insumoId = Number(ins.id_insumo ?? r.id_insumo);
-
-              // flags de bloqueo
-              const bloqueaQuitar = insumosUsadosEnCompras.has(insumoId);
-              const bloqueaEditar = insumosEnProceso.has(insumoId);
-
-              return (
-                <tr key={pk}>
-                  <td>{ins.id_insumo ?? r.id_insumo}</td>
-                  <td>{ins.ins_nombre ?? r.ins_nombre ?? "-"}</td>
-                  <td>{ins.ins_unidad ?? "-"}</td>
-                  <td>
-                    {ins.ins_capacidad
-                      ? `${Number(ins.ins_capacidad).toLocaleString("es-AR", {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })} ${""}`
-                      : "-"
-                    }
-                  </td>
-
-                  {/* Precio (con edición en línea, bloquea guardar si hay compras "En proceso") */}
-                  <td>
-                    {isEditing ? (
-                      <div className="edit-price-wrap">
-                        <input
-                          type="number"
-                          step="0.001"
-                          min="0"
-                          className="price-input"
-                          value={editingPrice}
-                          onChange={(e) => setEditingPrice(e.target.value)}
-                          disabled={bloqueaEditar}
-                          title={bloqueaEditar
-                            ? "No se puede editar: hay compras en proceso con este insumo."
-                            : "Ingresá el nuevo precio"
-                          }
-                        />
-                        <button
-                          className="btn btn-primary btn-xs"
-                          disabled={
-                            !isValidPrice(editingPrice) ||
-                            !isPriceAtLeastMin(editingPrice) ||
-                            bloqueaEditar
-                          }
-                          onClick={async () => {
-                            if (bloqueaEditar) {
-                              setMsg("No se puede editar el precio: este insumo está en compras 'En proceso'.");
-                              return;
-                            }
-                            if (!isPriceAtLeastMin(editingPrice)) {
-                              setMsg("El precio debe ser mayor a 100.");
-                              return;
-                            }
-                            try {
-                              await api.patch(`/api/proveedores-insumos/${pk}/`, {
-                                precio_unitario: toPriceStr(editingPrice),
-                              });
-                              await refreshRel();
-                              await refreshComprasBloqueos();
-                              setEditingRow(null);
-                              setEditingPrice("");
-                              setMsg("Precio actualizado ✅");
-                            } catch (e) {
-                              console.error(e);
-                              setMsg("No se pudo actualizar el precio.");
-                            }
-                          }}
-                        >
-                          Guardar
-                        </button>
-                        <button
-                          className="btn btn-secondary btn-xs"
-                          onClick={() => {
-                            setEditingRow(null);
-                            setEditingPrice("");
-                          }}
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    ) : (
-                      (r.precio_unitario ?? null) !== null
-                        ? `$ ${Number(r.precio_unitario).toFixed(3)}`
-                        : "-"
-                    )}
-                  </td>
-
-                  <td className="actions-cell">
-                    {/* Editar precio: solo si NO está bloqueado */}
-                    {!isEditing && !bloqueaEditar && (
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() => {
-                          setEditingRow(pk);
-                          setEditingPrice(
-                            (r.precio_unitario ?? "") === "" || r.precio_unitario === null
-                              ? ""
-                              : Number(r.precio_unitario).toFixed(3)
-                          );
-                        }}
-                        title="Editar precio"
-                      >
-                        Editar precio
-                      </button>
-                    )}
-
-                    {/* Quitar: solo si NO está bloqueado (si ya está en compras, el botón desaparece) */}
-                    {!bloqueaQuitar && (
-                      <button
-                        className="btn btn-danger"
-                        onClick={() => {
-                          handleQuitar(r);
-                        }}
-                        title="Quitar"
-                      >
-                        Quitar
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {(!relaciones || relaciones.length === 0) && (
-              <tr>
-                <td colSpan="6" className="empty-row">
-                  Este proveedor aún no tiene insumos vinculados.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <style>{styles}</style>
     </DashboardLayout>
   );
 }
 
-const styles = `
-.page-header { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:16px; }
-.page-header h2 { margin:0; color:#fff; }
-.sub { margin:4px 0 0; color:#d1d5db; }
-.header-actions { display:flex; gap:8px; }
-
-.notice { background:#1f2937; border:1px solid #374151; color:#e5e7eb; padding:8px 12px; border-radius:8px; }
-
-/* Tarjeta */
-.card { background:#2c2c2e; border:1px solid #3a3a3c; border-radius:12px; padding:16px; margin-bottom:16px; }
-.muted { color:#d1d5db; display:inline-block; margin-top:6px; }
-
-/* COMBOBOX */
-.combo { position: relative; margin-bottom: 8px; }
-.combo-input-wrap { display:flex; align-items:center; gap:8px; }
-.combo-input {
-  flex:1; background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; border-radius:8px; padding:10px 12px; outline:none;
-}
-.price-input {
-  width: 180px; background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; border-radius:8px; padding:10px 12px; outline:none;
-}
-.search-count { font-size:.875rem; color:#d1d5db; white-space:nowrap; }
-.combo-list {
-  position:absolute; z-index:30; top:100%; left:0; right:0; margin-top:6px;
-  background:#2c2c2e; border:1px solid #3a3a3c; border-radius:10px; max-height:260px; overflow:auto;
-  box-shadow: 0 10px 30px rgba(0,0,0,.35);
-}
-.combo-option { padding:10px 12px; cursor:pointer; display:flex; flex-direction:column; gap:4px; }
-.combo-option:hover, .combo-option.is-active { background:#3a3a3c; }
-.opt-title { color:#fff; font-weight:600; display:flex; gap:6px; align-items:center; }
-.opt-unit { color:#d1d5db; font-weight:500; }
-.opt-meta { color:#c7c7c7; font-size:.85rem; display:flex; gap:10px; }
-.combo-empty { padding:12px; display:flex; align-items:center; justify-content:space-between; gap:12px; color:#d1d5db; }
-.btn-small { padding:6px 10px; font-size:.9rem; }
-
-/* Botones */
-.btn { display:inline-flex; align-items:center; gap:8px; padding:8px 14px; border-radius:8px; border:none; cursor:pointer; font-weight:600; text-decoration:none; transition:background-color .2s ease; }
-.btn-primary { background:#facc15; color:#111827; }
-.btn-primary:hover { background:#eab308; }
-.btn-secondary { background:#3a3a3c; color:#eaeaea; }
-.btn-secondary:hover { background:#4a4a4e; }
-.btn-danger { background:rgba(239,68,68,.2); color:#ef4444; }
-.btn-danger:hover { background:rgba(239,68,68,.3); }
-
-/* Tabla */
-.table-container { background:#2c2c2e; border:1px solid #3a3a3c; border-radius:12px; overflow:hidden; }
-.table { width:100%; border-collapse:collapse; }
-.table th, .table td { padding:14px 18px; text-align:left; border-bottom:1px solid #3a3a3c; color:#eaeaea; }
-.table th { background:#3a3a3c; color:#d1d5db; font-weight:600; font-size:.875rem; text-transform:uppercase; }
-.table tbody tr:last-child td { border-bottom:none; }
-.actions-cell { display:flex; gap:8px; }
-.empty-row { text-align:center; color:#a0a0a0; padding:32px; }
-
-/* Edición en línea precio */
-.edit-price-wrap { display:flex; align-items:center; gap:8px; }
-.btn-xs { padding:6px 10px; font-size:.85rem; }
-`;
 
 
 

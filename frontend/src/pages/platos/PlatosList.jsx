@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
+
+import PlatosListHeader from "../../components/platos/PlatosListHeader";
+import PlatosListFilters from "../../components/platos/PlatosListFilters";
+import PlatosListTable from "../../components/platos/PlatosListTable";
+import PlatosListPagination from "../../components/platos/PlatosListPagination";
+import PlatosListModals from "../../components/platos/PlatosListModals";
+
+import "./PlatosList.css";
 
 /* ==== helpers comunes de normalización ==== */
 function normalizeResponse(respData) {
@@ -12,7 +19,6 @@ function normalizeResponse(respData) {
   return [];
 }
 
-/* ==== chequear si el plato está en pedidos para bloquear desactivado ==== */
 /* ==== chequear si el plato está en pedidos para bloquear desactivado ==== */
 async function platoEstaEnPedidos(idPlato) {
   const idNum = Number(idPlato);
@@ -31,7 +37,6 @@ async function platoEstaEnPedidos(idPlato) {
       });
       const list = normalizeResponse(data);
 
-      // ⬇️ ACA está la diferencia importante:
       const hayDeEstePlato =
         Array.isArray(list) &&
         list.some((it) => {
@@ -45,10 +50,10 @@ async function platoEstaEnPedidos(idPlato) {
         });
 
       if (hayDeEstePlato) {
-        return true; // solo si REALMENTE hay detalles con ese plato
+        return true;
       }
     } catch {
-      // si ese endpoint falla, probamos el siguiente
+      // probamos siguiente endpoint
     }
   }
 
@@ -62,14 +67,17 @@ async function platoEstaEnPedidos(idPlato) {
       const items = p.detalles || p.items || p.lineas || [];
       if (
         Array.isArray(items) &&
-        items.some((it) => Number(it.id_plato ?? it.plato ?? it.id_plato_id) === idNum)
+        items.some(
+          (it) =>
+            Number(it.id_plato ?? it.plato ?? it.id_plato_id) === idNum
+        )
       ) {
         return true;
       }
     }
   } catch {}
 
-  // si no encontramos NINGÚN detalle con ese plato, se puede desactivar
+  // no encontramos nada, se puede desactivar
   return false;
 }
 
@@ -154,6 +162,7 @@ async function fetchInsumo(insumoId) {
 }
 
 /** Validación estricta de producción */
+/** Validación estricta de producción */
 async function validarProduccion({ id_plato, cantidad }) {
   const platoId = Number(id_plato);
   const cant = Number(cantidad);
@@ -169,18 +178,39 @@ async function validarProduccion({ id_plato, cantidad }) {
 
   // 2) receta
   const receta = await fetchRecetaDePlato(platoId);
+
+  // ✔ Caso A: NO hay receta asociada
   if (!receta) {
     return {
-      motivo: "El plato no tiene receta y su stock actual no alcanza.",
+      motivo:
+        "El plato no tiene receta asociada. No se puede cargar stock.",
       faltantes: [],
     };
   }
 
   const recetaId =
     receta.id_receta ?? receta.id ?? receta.receta_id ?? receta.rec_id ?? null;
-  const dets = recetaId ? await fetchDetallesReceta(recetaId) : [];
 
-  // 3) pre-cálculo global
+  if (!recetaId) {
+    return {
+      motivo:
+        "El plato no tiene una receta válida. No se puede cargar stock.",
+      faltantes: [],
+    };
+  }
+
+  const dets = await fetchDetallesReceta(recetaId);
+
+  // ✔ Caso B: hay receta pero SIN insumos
+  if (!Array.isArray(dets) || dets.length === 0) {
+    return {
+      motivo:
+        "El plato no tiene insumos cargados en su receta. No se puede cargar stock.",
+      faltantes: [],
+    };
+  }
+
+  // ✔ Caso C: hay receta con insumos → validar stock
   const faltantes = [];
   for (const det of dets) {
     const insumoId = Number(
@@ -190,7 +220,6 @@ async function validarProduccion({ id_plato, cantidad }) {
 
     const porPlato = readRecetaCantPorPlato(det);
     const requerido = porPlato * cant;
-
     if (requerido <= 0) continue;
 
     const ins = await fetchInsumo(insumoId);
@@ -212,6 +241,7 @@ async function validarProduccion({ id_plato, cantidad }) {
     ? { motivo: "Faltan insumos para producir.", faltantes }
     : null;
 }
+
 
 /** Intenta usar endpoint especializado si existe */
 async function tryProducirEndpoint(platoId, cantidad) {
@@ -269,7 +299,6 @@ async function producirPorFallback(platoId, cantidad) {
     receta.id_receta ?? receta.id ?? receta.receta_id ?? receta.rec_id ?? null;
   const dets = recetaId ? await fetchDetallesReceta(recetaId) : [];
 
-  // pre-calcular requerimientos + disponibilidad
   const requeridos = [];
   for (const det of dets) {
     const insumoId = Number(
@@ -295,12 +324,10 @@ async function producirPorFallback(platoId, cantidad) {
     requeridos.push({ insumoId, req, disp });
   }
 
-  // aplicar descuentos (si todo OK)
   for (const r of requeridos) {
     await actualizarStockInsumo(r.insumoId, r.disp - r.req);
   }
 
-  // sumar stock del plato
   const plato = await fetchPlato(platoId);
   const stockPlato = readPlatoStockField(plato);
   await actualizarStockPlato(platoId, stockPlato + Number(cantidad));
@@ -410,7 +437,6 @@ export default function PlatosList() {
       );
       const nextEstado = idEstadoActual === "1" ? 2 : 1;
 
-      // si voy a desactivar y está en pedidos -> bloquear
       if (nextEstado === 2) {
         const enPedidos = await platoEstaEnPedidos(id);
         if (enPedidos) {
@@ -471,12 +497,10 @@ export default function PlatosList() {
     });
   }, [data, qNombre, fCategoria, fEstado]);
 
-  // resetear página cuando cambian filtros/datos
   useEffect(() => {
     setCurrentPage(1);
   }, [qNombre, fCategoria, fEstado, data.length]);
 
-  // datos paginados (data table)
   const totalItems = filteredData.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -488,9 +512,7 @@ export default function PlatosList() {
     setCurrentPage(page);
   };
 
-  /* ================================================================
-     Flujo “Cargar stock” (producir)
-     ================================================================ */
+  /* ================== Cargar stock (producir) ================== */
   const abrirCargarStock = (plato) => {
     setProdPlato(plato);
     setProdCantidad("");
@@ -512,7 +534,6 @@ export default function PlatosList() {
     try {
       setProducing(true);
 
-      // 1) Validar stock (plato directo y receta→insumos)
       const err = await validarProduccion({
         id_plato: platoId,
         cantidad: cant,
@@ -532,10 +553,8 @@ export default function PlatosList() {
         return;
       }
 
-      // 2) Endpoint especializado
       const ok = await tryProducirEndpoint(platoId, cant);
       if (!ok) {
-        // 3) Fallback seguro
         await producirPorFallback(platoId, cant);
       }
 
@@ -553,7 +572,7 @@ export default function PlatosList() {
     }
   };
 
-  /* ================== Crear categoría (botón + modal) ================== */
+  /* ================== Crear categoría ================== */
   const normalizarNombre = (s) =>
     (s || "").toLowerCase().replace(/\s+/g, "");
 
@@ -610,481 +629,68 @@ export default function PlatosList() {
 
   return (
     <DashboardLayout>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 12,
-        }}
-      >
-        <h2 style={{ margin: 0, color: "#fff" }}>Platos</h2>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            className="btn btn-secondary"
-            type="button"
-            onClick={abrirAgregarCategoria}
-          >
-            Agregar categoría
-          </button>
-          <Link to="/platos/registrar" className="btn btn-primary">
-            Registrar plato
-          </Link>
-        </div>
-      </div>
+      <PlatosListHeader abrirAgregarCategoria={abrirAgregarCategoria} />
 
-      {/* Filtros */}
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 8,
-          marginBottom: 12,
-          alignItems: "center",
-        }}
-      >
-        <input
-          type="text"
-          placeholder="Buscar por nombre..."
-          value={qNombre}
-          onChange={(e) => setQNombre(e.target.value)}
-          style={{
-            padding: "6px 10px",
-            borderRadius: 8,
-            border: "1px solid #333",
-            background: "#0f0f0f",
-            color: "#fff",
-          }}
-        />
-        <select
-          value={fCategoria}
-          onChange={(e) => setFCategoria(e.target.value)}
-          style={{
-            padding: "6px 10px",
-            borderRadius: 8,
-            border: "1px solid #333",
-            background: "#0f0f0f",
-            color: "#fff",
-          }}
-        >
-          <option value="">Todas las categorías</option>
-          {categorias.map((c) => {
-            const id =
-              c.id_categoria_plato ??
-              c.id_categoria ??
-              c.id ??
-              c.categoria_id;
-            const nombre =
-              c.catplt_nombre ??
-              c.categoria_nombre ??
-              c.cat_nombre ??
-              c.nombre ??
-              (id != null ? `#${id}` : "-");
-            return (
-              <option key={id} value={id}>
-                {nombre}
-              </option>
-            );
-          })}
-        </select>
+      <PlatosListFilters
+        qNombre={qNombre}
+        setQNombre={setQNombre}
+        fCategoria={fCategoria}
+        setFCategoria={setFCategoria}
+        fEstado={fEstado}
+        setFEstado={setFEstado}
+        categorias={categorias}
+      />
 
-        <select
-          value={fEstado}
-          onChange={(e) => setFEstado(e.target.value)}
-          style={{
-            padding: "6px 10px",
-            borderRadius: 8,
-            border: "1px solid #333",
-            background: "#0f0f0f",
-            color: "#fff",
-          }}
-        >
-          <option value="">Todos los estados</option>
-          <option value="1">Activos</option>
-          <option value="2">Inactivos</option>
-        </select>
-      </div>
+      {msg && <p className="platos-msg">{msg}</p>}
 
-      {msg && <p style={{ color: "#facc15" }}>{msg}</p>}
       {loading ? (
         <p>Cargando...</p>
       ) : (
         <>
-          <div className="table-wrap">
-            <table className="table-dark">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Nombre</th>
-                  <th>Precio</th>
-                  <th>Stock</th>
-                  <th>Categoría</th>
-                  <th>Estado</th>
-                  <th style={{ width: 420 }}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageRows.length === 0 && (
-                  <tr>
-                    <td colSpan="7" style={{ textAlign: "center" }}>
-                      Sin registros
-                    </td>
-                  </tr>
-                )}
-                {pageRows.map((r, idx) => {
-                  const idPlato = r.id_plato ?? r.id ?? idx;
-                  const id = idPlato;
-                  const nombre =
-                    r.pla_nombre ??
-                    r.plt_nombre ??
-                    r.nombre ??
-                    "(sin nombre)";
-                  const precio =
-                    r.pla_precio ?? r.plt_precio ?? r.precio ?? 0;
-                  const stock =
-                    r.plt_stock ??
-                    r.pla_stock ??
-                    r.stock ??
-                    r.stock_actual ??
-                    "-";
+          <PlatosListTable
+            rows={pageRows}
+            catMap={catMap}
+            recetaPorPlato={recetaPorPlato}
+            toggleEstado={toggleEstado}
+            abrirCargarStock={abrirCargarStock}
+          />
 
-                  let categoriaNombre =
-                    r.categoria_nombre ?? r.cat_nombre ?? null;
-                  if (
-                    !categoriaNombre &&
-                    r.categoria &&
-                    typeof r.categoria === "object"
-                  ) {
-                    categoriaNombre =
-                      r.categoria.nombre ??
-                      r.categoria.cat_nombre ??
-                      r.categoria.categoria_nombre ??
-                      null;
-                  }
-                  const categoriaId =
-                    r.id_categoria_plato ??
-                    r.id_categoria ??
-                    r.categoria_id ??
-                    (r.categoria && typeof r.categoria === "object"
-                      ? r.categoria.id ?? r.categoria.id_categoria
-                      : null);
-
-                  const categoria =
-                    categoriaNombre ??
-                    (categoriaId != null
-                      ? catMap[categoriaId] || `#${categoriaId}`
-                      : "-");
-
-                  const idEstado = String(
-                    r.id_estado_plato ??
-                      r.id_estado ??
-                      r.estado ??
-                      "1"
-                  );
-                  const estadoNombre =
-                    r.estado_nombre ||
-                    (idEstado === "1" ? "Activo" : "Inactivo");
-                  const recetaId = recetaPorPlato[Number(idPlato)];
-
-                  return (
-                    <tr key={id}>
-                      <td>{id}</td>
-                      <td>{nombre}</td>
-                      <td>{Number(precio).toFixed(2)}</td>
-                      <td>{stock}</td>
-                      <td>{categoria}</td>
-                      <td>{estadoNombre}</td>
-                      <td
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <Link
-                          to={`/platos/${id}/editar`}
-                          className="btn btn-secondary"
-                        >
-                          Editar
-                        </Link>
-                        <button
-                          onClick={() => toggleEstado(r)}
-                          className="btn btn-danger"
-                        >
-                          {idEstado === "1" ? "Desactivar" : "Activar"}
-                        </button>
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => abrirCargarStock(r)}
-                        >
-                          Cargar stock
-                        </button>
-                        {/* Ver receta del plato */}
-                        <Link
-                          to={`/platos/${id}/receta`}
-                          className="btn btn-secondary"
-                        >
-                          Ver receta
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Controles de paginación tipo data table */}
           {totalItems > 0 && (
-            <div className="pagination-wrap">
-              <div className="pagination-info">
-                Mostrando{" "}
-                <strong>{totalItems === 0 ? 0 : startIndex + 1}</strong>–
-                <strong>{endIndex}</strong> de{" "}
-                <strong>{totalItems}</strong> platos
-              </div>
-              <div className="pagination-controls">
-                <button
-                  className="btn btn-secondary btn-sm"
-                  type="button"
-                  onClick={() => goToPage(currentPage - 1)}
-                  disabled={currentPage === 1}
-                >
-                  Anterior
-                </button>
-                <span className="pagination-page">
-                  Página {currentPage} de {totalPages}
-                </span>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  type="button"
-                  onClick={() => goToPage(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                >
-                  Siguiente
-                </button>
-              </div>
-            </div>
+            <PlatosListPagination
+              totalItems={totalItems}
+              startIndex={startIndex}
+              endIndex={endIndex}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              goToPage={goToPage}
+            />
           )}
+
+          <PlatosListModals
+            /* producir */
+            showProd={showProd}
+            onCloseProd={() => !producing && setShowProd(false)}
+            prodPlato={prodPlato}
+            prodCantidad={prodCantidad}
+            setProdCantidad={setProdCantidad}
+            prodMsg={prodMsg}
+            producir={producir}
+            producing={producing}
+            /* categoría */
+            showCatModal={showCatModal}
+            onCloseCat={() => !savingCat && setShowCatModal(false)}
+            catName={catName}
+            setCatName={setCatName}
+            catError={catError}
+            guardarCategoria={guardarCategoria}
+            savingCat={savingCat}
+          />
         </>
       )}
-
-      {/* Modal para producir (cargar stock) */}
-      {showProd && (
-        <div
-          style={modal.backdrop}
-          onClick={() => !producing && setShowProd(false)}
-        >
-          <div
-            style={modal.card}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ marginTop: 0 }}>Cargar stock de plato</h3>
-            <p
-              style={{
-                margin: "6px 0 12px",
-                color: "#d1d5db",
-              }}
-            >
-              Ingresá la <strong>cantidad</strong> a producir. Se validará
-              el stock de insumos según la <strong>receta</strong>. Si
-              falta algún insumo, no se descontará nada.
-            </p>
-            <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ color: "#eaeaea" }}>
-                Plato:{" "}
-                <strong>
-                  {prodPlato?.pla_nombre ??
-                    prodPlato?.plt_nombre ??
-                    prodPlato?.nombre ??
-                    `#${prodPlato?.id_plato ?? prodPlato?.id}`}
-                </strong>
-              </div>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                placeholder="Cantidad"
-                value={prodCantidad}
-                onChange={(e) =>
-                  setProdCantidad(e.target.value)
-                }
-                style={modal.input}
-                disabled={producing}
-              />
-            </div>
-            {prodMsg && (
-              <pre style={modal.warn}>{prodMsg}</pre>
-            )}
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                justifyContent: "flex-end",
-                marginTop: 12,
-              }}
-            >
-              <button
-                className="btn btn-secondary"
-                onClick={() => setShowProd(false)}
-                disabled={producing}
-              >
-                Cancelar
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={producir}
-                disabled={producing}
-              >
-                {producing ? "Procesando..." : "Producir"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal para AGREGAR CATEGORÍA */}
-      {showCatModal && (
-        <div
-          style={modal.backdrop}
-          onClick={() => !savingCat && setShowCatModal(false)}
-        >
-          <div
-            style={modal.card}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ marginTop: 0 }}>Agregar categoría de plato</h3>
-            <p
-              style={{
-                margin: "6px 0 12px",
-                color: "#d1d5db",
-              }}
-            >
-              Ingresá el nombre de la categoría. No se permiten nombres repetidos.
-            </p>
-            <input
-              type="text"
-              placeholder="Ej. Pizzas especiales"
-              value={catName}
-              onChange={(e) => setCatName(e.target.value)}
-              style={modal.input}
-              disabled={savingCat}
-            />
-            {catError && (
-              <div
-                style={{
-                  marginTop: 8,
-                  color: "#fca5a5",
-                  fontSize: ".9rem",
-                }}
-              >
-                {catError}
-              </div>
-            )}
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                justifyContent: "flex-end",
-                marginTop: 12,
-              }}
-            >
-              <button
-                className="btn btn-secondary"
-                onClick={() => setShowCatModal(false)}
-                disabled={savingCat}
-              >
-                Cancelar
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={guardarCategoria}
-                disabled={savingCat}
-              >
-                {savingCat ? "Guardando..." : "Guardar categoría"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <style>{styles}</style>
     </DashboardLayout>
   );
 }
 
-const styles = `
-.table-wrap { overflow:auto; margin-top: 8px; }
-.table-dark { width:100%; border-collapse: collapse; background:#121212; color:#eaeaea; }
-.table-dark th, .table-dark td { border:1px solid #232323; padding:10px; }
-.btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
-.btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
-.btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
-.btn-danger { background:#ef4444; color:#fff; border-color:#ef4444; }
-.btn-sm { padding:6px 10px; font-size:12px; }
-
-.pagination-wrap {
-  margin-top: 12px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px;
-  align-items: center;
-}
-.pagination-info {
-  font-size: 13px;
-  color: #d4d4d8;
-}
-.pagination-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.pagination-page {
-  font-size: 13px;
-  color: #e4e4e7;
-}
-`;
-
-const modal = {
-  backdrop: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,.55)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 50,
-    padding: 16,
-  },
-  card: {
-    background: "#1a1a1a",
-    color: "#fff",
-    border: "1px solid #2a2a2a",
-    borderRadius: 12,
-    padding: 18,
-    maxWidth: 520,
-    width: "100%",
-    boxShadow: "0 10px 30px rgba(0,0,0,.5)",
-  },
-  input: {
-    width: "100%",
-    background: "#0f0f0f",
-    color: "#fff",
-    border: "1px solid #2a2a2a",
-    borderRadius: 8,
-    padding: "10px 12px",
-  },
-  warn: {
-    background: "#3a3a3c",
-    color: "#facc15",
-    border: "1px solid #4a4a4e",
-    borderRadius: 8,
-    padding: "8px 10px",
-    marginTop: 10,
-    whiteSpace: "pre-wrap",
-  },
-};
 
 
 

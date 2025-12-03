@@ -2,11 +2,16 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
+import InsumoRegistrarForm from "../../components/insumos/InsumoRegistrarForm";
+
+// ✅ CSS local de la página (no global)
+import "./InsumoRegistrar.css";
 
 const ESTADOS = [
   { id: 1, label: "Activo" },
   { id: 2, label: "Inactivo" },
 ];
+
 const UNIDADES = ["u", "kg", "g", "l", "ml"];
 
 // 👉 helper para normalizar (ignorar mayúsculas y espacios)
@@ -39,9 +44,9 @@ export default function InsumoRegistrar() {
   const [form, setForm] = useState({
     ins_nombre: "",
     ins_unidad: "kg", // default
-    ins_cantidad: "0",     // 👈 SIEMPRE 0 AL REGISTRAR (NO SE MUESTRA)
+    ins_cantidad: "0", // SIEMPRE 0 AL REGISTRAR (NO SE MUESTRA)
     ins_capacidad: "",
-    ins_stock_actual: "0", // 👈 STOCK INICIAL 0 (NO SE MUESTRA)
+    ins_stock_actual: "0", // STOCK INICIAL 0 (NO SE MUESTRA)
     ins_punto_reposicion: "",
     ins_stock_min: "",
     ins_stock_max: "",
@@ -231,257 +236,34 @@ export default function InsumoRegistrar() {
     form.ins_unidad
   );
 
+  const handleCancel = () => {
+    if (backTo) navigate(backTo, { replace: true });
+    else navigate("/inventario");
+  };
+
   return (
     <DashboardLayout>
-      <div className="form-container">
-        <h2 className="form-title">Registrar Nuevo Insumo</h2>
-        {msg && <p className="form-message">{msg}</p>}
-
-        <form onSubmit={onSubmit} className="form">
-          <div className="form-group">
-            <label htmlFor="ins_nombre">Nombre</label>
-            <input
-              id="ins_nombre"
-              name="ins_nombre"
-              value={form.ins_nombre}
-              onChange={onChange}
-              onBlur={onBlur}
-              required
-              placeholder="Ej. Queso mozzarella"
-            />
-            {errors.ins_nombre && (
-              <small className="field-error">{errors.ins_nombre}</small>
-            )}
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="ins_unidad">Unidad</label>
-            <select
-              id="ins_unidad"
-              name="ins_unidad"
-              value={form.ins_unidad}
-              onChange={onChange}
-              onBlur={onBlur}
-              required
-            >
-              <option value="">-- Seleccioná --</option>
-              {UNIDADES.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
-            {errors.ins_unidad && (
-              <small className="field-error">{errors.ins_unidad}</small>
-            )}
-          </div>
-
-          {/* ✅ CANTIDAD INICIAL / STOCK ACTUAL YA NO SE MUESTRAN
-              (quedan siempre en 0 al registrar)
-           */}
-
-          <div className="form-group">
-            <label htmlFor="ins_capacidad">
-              Capacidad por unidad ({form.ins_unidad || "unidad"})
-            </label>
-            <input
-              id="ins_capacidad"
-              name="ins_capacidad"
-              type="number"
-              value={form.ins_capacidad}
-              onChange={onChange}
-              onBlur={onBlur}
-              required
-              min={capMin !== undefined ? capMin : undefined}
-              max={capMax !== undefined ? capMax : undefined}
-              step={capStep !== undefined ? capStep : "0.01"}
-              placeholder="Ej. 6 (botellas por fardo, 2 kg por bolsa...)"
-            />
-            {errors.ins_capacidad && (
-              <small className="field-error">{errors.ins_capacidad}</small>
-            )}
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="ins_punto_reposicion">
-              Punto de reposición
-            </label>
-            <input
-              id="ins_punto_reposicion"
-              name="ins_punto_reposicion"
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.ins_punto_reposicion}
-              onChange={onChange}
-              onBlur={onBlur}
-              required
-            />
-            {errors.ins_punto_reposicion && (
-              <small className="field-error">
-                {errors.ins_punto_reposicion}
-              </small>
-            )}
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="ins_stock_min">Stock mínimo</label>
-            <input
-              id="ins_stock_min"
-              name="ins_stock_min"
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.ins_stock_min}
-              onChange={onChange}
-              onBlur={onBlur}
-              required
-            />
-            {errors.ins_stock_min && (
-              <small className="field-error">{errors.ins_stock_min}</small>
-            )}
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="ins_stock_max">Stock máximo </label>
-            <input
-              id="ins_stock_max"
-              name="ins_stock_max"
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.ins_stock_max}
-              onChange={onChange}
-              onBlur={onBlur}
-            />
-            {errors.ins_stock_max && (
-              <small className="field-error">{errors.ins_stock_max}</small>
-            )}
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="id_estado_insumo">Estado</label>
-            <select
-              id="id_estado_insumo"
-              name="id_estado_insumo"
-              value={form.id_estado_insumo}
-              onChange={onChange}
-              onBlur={onBlur}
-              required
-            >
-              {ESTADOS.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-actions">
-            <button type="submit" className="btn btn-primary">
-              Registrar insumo
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => {
-                if (backTo) navigate(backTo, { replace: true });
-                else navigate("/inventario");
-              }}
-            >
-              Cancelar
-            </button>
-          </div>
-        </form>
+      {/* ✅ Scope para que el CSS no sea global */}
+      <div className="insumo-registrar-scope">
+        <InsumoRegistrarForm
+          form={form}
+          errors={errors}
+          msg={msg}
+          onChange={onChange}
+          onBlur={onBlur}
+          onSubmit={onSubmit}
+          onCancel={handleCancel}
+          estados={ESTADOS}
+          unidades={UNIDADES}
+          capMin={capMin}
+          capMax={capMax}
+          capStep={capStep}
+        />
       </div>
-
-      <style>{formStyles}</style>
-      <style>
-        {`
-          .field-error{color:#fca5a5;font-size:.85rem}
-          .hint{color:#d4d4d8;font-size:.8rem;}
-        `}
-      </style>
     </DashboardLayout>
   );
 }
 
-const formStyles = `
-  .form-container {
-    background-color: #2c2c2e;
-    border: 1px solid #3a3a3c;
-    border-radius: 12px;
-    padding: 24px;
-    max-width: 800px;
-    margin: 0 auto;
-  }
-  .form-title {
-    margin: 0 0 24px 0;
-    font-size: 1.5rem;
-  }
-  .form-message {
-    margin: 0 0 16px 0;
-    color: #facc15;
-  }
-  .form {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 20px;
-  }
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .form-group label {
-    font-weight: 600;
-    color: #d1d5db;
-  }
-  .form-group input, .form-group select {
-    background-color: #3a3a3c;
-    color: #fff;
-    border: 1px solid #4a4a4e;
-    border-radius: 8px;
-    padding: 10px 12px;
-    outline: none;
-    transition: border-color 0.2s ease;
-  }
-  .form-group input:focus, .form-group select:focus {
-    border-color: #facc15;
-  }
-  .form-actions {
-    grid-column: 1 / -1;
-    display: flex;
-    gap: 12px;
-    margin-top: 16px;
-  }
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    border-radius: 8px;
-    border: none;
-    cursor: pointer;
-    font-weight: 600;
-    text-decoration: none;
-    transition: background-color 0.2s ease;
-  }
-  .btn-primary {
-    background-color: #facc15;
-    color: #111827;
-  }
-  .btn-primary:hover {
-    background-color: #eab308;
-  }
-  .btn-secondary {
-    background-color: #3a3a3c;
-    color: #eaeaea;
-  }
-  .btn-secondary:hover {
-    background-color: #4a4a4e;
-  }
-`;
 
 
 

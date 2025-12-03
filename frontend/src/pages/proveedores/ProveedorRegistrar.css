@@ -1,0 +1,177 @@
+.prov-reg-container {
+  background-color: #2c2c2e;
+  border: 1px solid #3a3a3c;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+/* Título y mensaje */
+.prov-reg-title {
+  margin: 0 0 24px 0;
+  font-size: 1.5rem;
+  color: #fff;
+}
+
+.prov-reg-msg {
+  margin: 0 0 16px 0;
+  color: #facc15;
+}
+
+/* Formulario */
+.prov-reg-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+/* Fila base */
+.prov-reg-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Fila que ocupa todas las columnas */
+.prov-reg-row-span-2 {
+  grid-column: 1 / -1;
+}
+
+/* Campos compactos (Nombre / Correo) */
+.prov-reg-row--compact {
+  max-width: 320px;
+}
+
+/* Labels */
+.prov-reg-row label {
+  font-weight: 600;
+  color: #d1d5db;
+  font-size: 0.95rem;
+}
+
+/* Inputs y selects */
+.prov-reg-row input,
+.prov-reg-row select {
+  background-color: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+  border-radius: 8px;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color 0.2s ease;
+  font-size: 0.95rem;
+}
+
+/* Compactamos aún más Nombre y Correo */
+.prov-reg-row--compact input {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  font-size: 0.9rem;
+}
+
+/* Input específico de Nombre aún más chico */
+.prov-reg-input-nombre {
+  height: 34px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+/* Focus */
+.prov-reg-row input:focus,
+.prov-reg-row select:focus {
+  border-color: #facc15;
+}
+
+/* Mensajes de error/info */
+.prov-reg-error {
+  color: #fca5a5;
+  font-size: 0.85rem;
+  margin-top: 2px;
+}
+
+.prov-reg-info {
+  font-size: 0.85rem;
+  margin-top: 4px;
+  color: #e5e7eb;
+}
+
+.prov-reg-info-error {
+  color: #fca5a5;
+}
+
+/* Crear nueva categoría */
+.prov-reg-newcat {
+  margin-top: 10px;
+  padding: 10px;
+  background: #323234;
+  border-radius: 8px;
+}
+
+.prov-reg-newcat-label {
+  font-size: 0.85rem;
+  color: #d1d5db;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.prov-reg-newcat-row {
+  display: flex;
+  gap: 8px;
+}
+
+.prov-reg-newcat-row input {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+/* Acciones */
+.prov-reg-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.prov-reg-actions.prov-reg-row-span-2 {
+  grid-column: 1 / -1;
+}
+
+/* Botones */
+.prov-reg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.2s ease;
+  font-size: 0.9rem;
+}
+
+.prov-reg-btn-primary {
+  background-color: #facc15;
+  color: #111827;
+}
+
+.prov-reg-btn-primary:hover {
+  background-color: #eab308;
+}
+
+.prov-reg-btn-secondary {
+  background-color: #3a3a3c;
+  color: #eaeaea;
+}
+
+.prov-reg-btn-secondary:hover {
+  background-color: #4a4a4e;
+}
+
+.prov-reg-btn-sm {
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+

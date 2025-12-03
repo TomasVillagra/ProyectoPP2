@@ -2,6 +2,9 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
+import EmpleadoEditarForm from "../../components/empleados/EmpleadoEditarForm";
+
+import "./EmpleadoEditar.css"; // ✅ CSS local (scoped)
 
 export default function EmpleadoEditar() {
   const { id } = useParams();
@@ -101,7 +104,16 @@ export default function EmpleadoEditar() {
     } else if (!nameRegex.test(apellido)) {
       e.emp_apellido = "El apellido solo puede contener letras y espacios.";
     }
-
+    
+    // 🚫 Nombre y apellido no pueden ser iguales
+    if (
+      nombre &&
+      apellido &&
+      nombre.toLowerCase() === apellido.toLowerCase()
+    ) {
+      e.emp_nombre = "El nombre y apellido no pueden ser iguales.";
+      e.emp_apellido = "El nombre y apellido no pueden ser iguales.";
+    }
     // DNI
     if (!dni) {
       e.emp_dni = "El DNI es obligatorio.";
@@ -141,8 +153,7 @@ export default function EmpleadoEditar() {
     // Contraseña nueva (opcional)
     if (pwd) {
       if (pwd.length < 6 || pwd.length > 20) {
-        e.password =
-          "La contraseña debe tener entre 6 y 20 caracteres.";
+        e.password = "La contraseña debe tener entre 6 y 20 caracteres.";
       }
     }
 
@@ -199,7 +210,7 @@ export default function EmpleadoEditar() {
       const thisId = String(id);
 
       const empIdStr = (emp) =>
-      String(emp.id_empleado ?? emp.id ?? "");
+        String(emp.id_empleado ?? emp.id ?? "");
 
       // DNI único
       const dniOcupado = empleados.some(
@@ -267,229 +278,27 @@ export default function EmpleadoEditar() {
     }
   };
 
+  const handleCancel = () => {
+    navigate("/empleados");
+  };
+
   return (
     <DashboardLayout>
-      <div className="form-container">
-        <h2 className="form-title">Editar Empleado</h2>
-        {msg && <p className="form-message">{msg}</p>}
-
-        <form onSubmit={handleSubmit} className="form">
-          {/* DATOS PERSONALES */}
-          <div className="form-section">
-            <h3 className="section-title">Datos personales</h3>
-
-            <div className="form-group">
-              <label htmlFor="emp_nombre">Nombre</label>
-              <input
-                id="emp_nombre"
-                name="emp_nombre"
-                value={form.emp_nombre}
-                onChange={handleChange}
-                onBlur={handleBlur}
-                required
-              />
-              {errors.emp_nombre && (
-                <small className="field-error">
-                  {errors.emp_nombre}
-                </small>
-              )}
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="emp_apellido">Apellido</label>
-              <input
-                id="emp_apellido"
-                name="emp_apellido"
-                value={form.emp_apellido}
-                onChange={handleChange}
-                onBlur={handleBlur}
-                required
-              />
-              {errors.emp_apellido && (
-                <small className="field-error">
-                  {errors.emp_apellido}
-                </small>
-              )}
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="emp_dni">DNI</label>
-              <input
-                id="emp_dni"
-                name="emp_dni"
-                value={form.emp_dni}
-                onChange={handleChange}
-                onBlur={handleBlur}
-                maxLength={8}
-                placeholder="8 dígitos"
-              />
-              {errors.emp_dni && (
-                <small className="field-error">{errors.emp_dni}</small>
-              )}
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="emp_tel">Teléfono</label>
-              <input
-                id="emp_tel"
-                name="emp_tel"
-                value={form.emp_tel}
-                onChange={handleChange}
-                onBlur={handleBlur}
-                placeholder="Ej: +54 387 1234567"
-              />
-              {errors.emp_tel && (
-                <small className="field-error">{errors.emp_tel}</small>
-              )}
-            </div>
-
-            <div className="form-group span-2">
-              <label htmlFor="emp_correo">Correo</label>
-              <input
-                id="emp_correo"
-                name="emp_correo"
-                type="email"
-                value={form.emp_correo}
-                onChange={handleChange}
-                onBlur={handleBlur}
-                placeholder="ejemplo@correo.com"
-              />
-              {errors.emp_correo && (
-                <small className="field-error">
-                  {errors.emp_correo}
-                </small>
-              )}
-            </div>
-          </div>
-
-          {/* DATOS DEL SISTEMA */}
-          <div className="form-section">
-            <h3 className="section-title">Datos del sistema</h3>
-
-            <div className="form-group">
-              <label htmlFor="id_cargo_emp">Cargo</label>
-              <select
-                id="id_cargo_emp"
-                name="id_cargo_emp"
-                value={form.id_cargo_emp}
-                onChange={handleChange}
-                onBlur={handleBlur}
-                required
-              >
-                <option value="">Elegí un cargo…</option>
-                {cargos.map((c) => (
-                  <option key={c.id_cargo_emp} value={c.id_cargo_emp}>
-                    {c.carg_nombre}
-                  </option>
-                ))}
-              </select>
-              {errors.id_cargo_emp && (
-                <small className="field-error">
-                  {errors.id_cargo_emp}
-                </small>
-              )}
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="id_estado_empleado">Estado</label>
-              <select
-                id="id_estado_empleado"
-                name="id_estado_empleado"
-                value={form.id_estado_empleado}
-                onChange={handleChange}
-                onBlur={handleBlur}
-                required
-              >
-                <option value="">Elegí un estado…</option>
-                {estados.map((e) => (
-                  <option
-                    key={e.id_estado_empleado}
-                    value={e.id_estado_empleado}
-                  >
-                    {e.estemp_nombre}
-                  </option>
-                ))}
-              </select>
-              {errors.id_estado_empleado && (
-                <small className="field-error">
-                  {errors.id_estado_empleado}
-                </small>
-              )}
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="username">
-                Usuario (no se modifica al editar)
-              </label>
-              <input
-                id="username"
-                name="username"
-                value={form.username}
-                readOnly
-                placeholder="Se mantiene el usuario actual"
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="password">
-                Nueva contraseña (opcional)
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                value={form.password}
-                onChange={handleChange}
-                onBlur={handleBlur}
-                maxLength={20}
-                placeholder="Dejar vacío para no cambiar"
-              />
-              {errors.password && (
-                <small className="field-error">
-                  {errors.password}
-                </small>
-              )}
-            </div>
-          </div>
-
-          <div className="form-actions span-2">
-            <button type="submit" className="btn btn-primary">
-              Guardar cambios
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => navigate("/empleados")}
-            >
-              Cancelar
-            </button>
-          </div>
-        </form>
+      <div className="empleado-editar-scope">
+        <EmpleadoEditarForm
+          form={form}
+          cargos={cargos}
+          estados={estados}
+          msg={msg}
+          errors={errors}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          onSubmit={handleSubmit}
+          onCancel={handleCancel}
+        />
       </div>
-
-      <style>{formStyles}</style>
     </DashboardLayout>
   );
 }
 
-const formStyles = `
-  .form-container { background-color: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 12px; padding: 24px; max-width: 900px; margin: 0 auto; }
-  .form-title { margin: 0 0 24px 0; font-size: 1.5rem; }
-  .form-message { margin: 0 0 16px 0; color: #facc15; white-space: pre-wrap; }
-  .form { display: grid; grid-template-columns: 1fr; gap: 24px; }
-  .form-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; border-top: 1px solid #3a3a3c; padding-top: 24px; }
-  .section-title { grid-column: 1 / -1; margin: 0 0 8px 0; font-size: 1rem; color: #a0a0a0; text-transform: uppercase; letter-spacing: 0.5px; }
-  .form-group { display: flex; flex-direction: column; gap: 8px; }
-  .form-group.span-2 { grid-column: 1 / -1; }
-  .form-group label { font-weight: 600; color: #d1d5db; }
-  .form-group input, .form-group select { background-color: #3a3a3c; color: #fff; border: 1px solid #4a4a4e; border-radius: 8px; padding: 10px 12px; outline: none; transition: border-color 0.2s ease; }
-  .form-group input:focus, .form-group select:focus { border-color: #facc15; }
-  .form-actions { display: flex; gap: 12px; margin-top: 16px; grid-column: 1 / -1; }
-  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; text-decoration: none; transition: background-color 0.2s ease; }
-  .btn-primary { background-color: #facc15; color: #111827; }
-  .btn-primary:hover { background-color: #eab308; }
-  .btn-secondary { background-color: #3a3a3c; color: #eaeaea; }
-  .btn-secondary:hover { background-color: #4a4a4e; }
-  .field-error { color: #fca5a5; font-size: 0.85rem; }
-`;
 

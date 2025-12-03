@@ -1,8 +1,14 @@
 // src/pages/ventas/VentaDetalle.jsx
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import { api } from "../../api/axios";
+
+import VentaDetalleHeader from "../../components/ventas/VentaDetalleHeader";
+import VentaDetalleInfo from "../../components/ventas/VentaDetalleInfo";
+import VentaDetalleTable from "../../components/ventas/VentaDetalleTable";
+
+import "./VentaDetalle.css";
 
 /* ---------------------------
    Helpers
@@ -74,7 +80,7 @@ const readPlatoNombre = (p, fallback = "") =>
   p?.nombre ??
   (fallback || `#${p?.id_plato ?? p?.id ?? ""}`);
 
-// 🔹 NUEVO: catálogo de estados de venta
+// 🔹 catálogo de estados de venta
 async function fetchEstadosVenta() {
   const urls = [
     "/api/estado-ventas/",
@@ -97,14 +103,13 @@ async function fetchEstadosVenta() {
 --------------------------- */
 export default function VentaDetalle() {
   const { id } = useParams();
-  const navigate = useNavigate();
 
   const [venta, setVenta] = useState(null);
   const [detalles, setDetalles] = useState([]);
   const [platosCache, setPlatosCache] = useState(new Map());
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
-  const [estadosVenta, setEstadosVenta] = useState([]); // 🔹 NUEVO
+  const [estadosVenta, setEstadosVenta] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -118,7 +123,6 @@ export default function VentaDetalle() {
           return;
         }
 
-        // 🔹 NUEVO: cargar catálogo de estados
         const ests = await fetchEstadosVenta();
         setEstadosVenta(ests);
 
@@ -127,7 +131,6 @@ export default function VentaDetalle() {
         const dets = await fetchDetalles(v.id_venta ?? v.id ?? id);
         setDetalles(dets);
 
-        // Traer nombres de platos (cache simple)
         const cache = new Map();
         await Promise.all(
           dets.map(async (d) => {
@@ -171,16 +174,13 @@ export default function VentaDetalle() {
     venta?.emp_nombre ??
     (venta?.id_empleado != null ? `#${venta?.id_empleado}` : "-");
 
-  // 🔹 NUEVO: mostrar SIEMPRE el nombre del estado
   const estadoStr = (() => {
-    // si ya viene nombre de una
     const nombreDirecto =
       venta?.estado_nombre ??
       venta?.estven_nombre ??
       null;
     if (nombreDirecto) return nombreDirecto;
 
-    // si viene como objeto
     if (venta?.id_estado_venta && typeof venta.id_estado_venta === "object") {
       return (
         venta.id_estado_venta.estven_nombre ??
@@ -189,7 +189,6 @@ export default function VentaDetalle() {
       );
     }
 
-    // si viene solo el id → buscar en catálogo
     const idEst = venta?.id_estado_venta;
     if (idEst && estadosVenta.length > 0) {
       const encontrado = estadosVenta.find(
@@ -210,23 +209,7 @@ export default function VentaDetalle() {
 
   return (
     <DashboardLayout>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 12,
-        }}
-      >
-        <h2 style={{ margin: 0, color: "#fff" }}>
-          Venta #{venta?.id_venta ?? venta?.id ?? id}
-        </h2>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Link className="btn btn-secondary" to="/ventas">
-            Volver a Ventas
-          </Link>
-        </div>
-      </div>
+      <VentaDetalleHeader id={venta?.id_venta ?? venta?.id ?? id} />
 
       {loading && <p>Cargando...</p>}
       {msg && (
@@ -235,148 +218,28 @@ export default function VentaDetalle() {
 
       {!loading && venta && (
         <>
-          <div className="card">
-            <div className="grid">
-              <div>
-                <div className="muted">Fecha/Hora</div>
-                <div>
-                  {fmtDate(
-                    venta.ven_fecha_hora ??
-                      venta.fecha ??
-                      venta.created_at
-                  )}
-                </div>
-              </div>
-              <div>
-                <div className="muted">Cliente</div>
-                <div>{clienteStr}</div>
-              </div>
-              <div>
-                <div className="muted">Empleado</div>
-                <div>{empleadoStr}</div>
-              </div>
-              <div>
-                <div className="muted">Estado</div>
-                <div>{String(estadoStr)}</div>
-              </div>
-              <div>
-                <div className="muted">Descripción</div>
-                <div>{venta.ven_descripcion ?? venta.descripcion ?? "-"}</div>
-              </div>
-              <div>
-                <div className="muted">Total (ven_monto)</div>
-                <div style={{ fontWeight: 700 }}>${money(venMonto)}</div>
-              </div>
-              <div>
-                <div className="muted">Total calculado (detalles)</div>
-                <div
-                  style={{
-                    fontWeight: 700,
-                    color: totalOK ? "#22c55e" : "#f97316",
-                  }}
-                >
-                  ${money(totalCalculado)} {!totalOK && "(≠ ven_monto)"}
-                </div>
-              </div>
-            </div>
-          </div>
+          <VentaDetalleInfo
+            venta={venta}
+            fmtDate={fmtDate}
+            clienteStr={clienteStr}
+            empleadoStr={empleadoStr}
+            estadoStr={estadoStr}
+            totalOK={totalOK}
+            money={money}
+            totalCalculado={totalCalculado}
+          />
 
-          <h3 style={{ marginTop: 18, color: "#fff" }}>
-            Detalles de la venta
-          </h3>
-          <div className="table-wrap">
-            <table className="table-dark">
-              <thead>
-                <tr>
-                  <th>Plato</th>
-                  <th style={{ width: 110, textAlign: "right" }}>Cant.</th>
-                  <th style={{ width: 160, textAlign: "right" }}>
-                    Precio unitario
-                  </th>
-                  <th style={{ width: 160, textAlign: "right" }}>Subtotal</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detalles.length === 0 && (
-                  <tr>
-                    <td colSpan="4" style={{ textAlign: "center" }}>
-                      Sin ítems
-                    </td>
-                  </tr>
-                )}
-                {detalles.map((d, idx) => {
-                  const pid = Number(d.id_plato ?? d.plato ?? d.id ?? 0);
-                  const plato = platosCache.get(pid);
-                  const nombre = plato
-                    ? readPlatoNombre(plato)
-                    : pid
-                    ? `Plato #${pid}`
-                    : "-";
-
-                  const cantidad = Number(
-                    d.detven_cantidad ?? d.cantidad ?? 0
-                  );
-                  const unit = Number(
-                    d.detven_precio_uni ?? d.precio_unitario ?? 0
-                  );
-                  const sub = Number(
-                    d.detven_subtotal ?? d.subtotal ?? unit * cantidad
-                  );
-
-                  return (
-                    <tr key={idx}>
-                      <td>{nombre}</td>
-                      <td style={{ textAlign: "right" }}>{cantidad}</td>
-                      <td style={{ textAlign: "right" }}>
-                        ${money(unit)}
-                      </td>
-                      <td style={{ textAlign: "right" }}>
-                        ${money(sub)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              {detalles.length > 0 && (
-                <tfoot>
-                  <tr>
-                    <td
-                      colSpan={3}
-                      style={{ textAlign: "right", fontWeight: 700 }}
-                    >
-                      Total
-                    </td>
-                    <td
-                      style={{ textAlign: "right", fontWeight: 700 }}
-                    >
-                      ${money(totalCalculado)}
-                    </td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
+          <VentaDetalleTable
+            detalles={detalles}
+            platosCache={platosCache}
+            readPlatoNombre={readPlatoNombre}
+            money={money}
+          />
         </>
       )}
-
-      <style>{styles}</style>
     </DashboardLayout>
   );
 }
 
-const styles = `
-.card {
-  background:#1b1b1e; color:#eaeaea; border:1px solid #2a2a2a; border-radius:12px; padding:14px; margin-bottom:14px;
-}
-.grid {
-  display:grid; gap:10px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-}
-.muted { color:#9ca3af; font-size:12px; margin-bottom:4px; }
-.table-wrap { overflow:auto; }
-.table-dark { width:100%; border-collapse: collapse; background:#121212; color:#eaeaea; }
-.table-dark th, .table-dark td { border:1px solid #232323; padding:10px; vertical-align:top; }
-.btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
-.btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
-`;
+
 

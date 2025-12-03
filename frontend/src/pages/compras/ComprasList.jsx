@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
+
+import ComprasListHeader from "../../components/compras/ComprasListHeader";
+import ComprasListFilters from "../../components/compras/ComprasListFilters";
+import ComprasListTable from "../../components/compras/ComprasListTable";
+import ComprasListPagination from "../../components/compras/ComprasListPagination";
+
+import "./ComprasList.css";
 
 /* ===== Helpers ===== */
 function normalizeList(d) {
@@ -14,8 +20,42 @@ const toNumber = (v, def = 0) =>
   v === "" || v === null || v === undefined ? def : Number(v);
 const fmtMoney = (n) => `$${Number(n ?? 0).toFixed(2)}`;
 const lower = (s) =>
-  (s ?? "").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-const parseDate = (s) => (s ? new Date(s.replace(" ", "T")) : null); // "YYYY-MM-DD HH:MM:SS"
+  (s ?? "")
+    .toString()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+/**
+ * Intenta parsear distintos formatos:
+ *  - "YYYY-MM-DD HH:MM:SS"
+ *  - "YYYY-MM-DDTHH:MM:SS"
+ *  - ISO con o sin "Z"
+ */
+const parseDate = (s) => {
+  if (!s) return null;
+  try {
+    const normalized = s.replace(" ", "T");
+    const d = new Date(normalized);
+    if (Number.isNaN(d.getTime())) return null;
+    return d;
+  } catch {
+    return null;
+  }
+};
+
+/** Muestra la fecha para el usuario (tabla) */
+const fmtDateTime = (s) => {
+  const d = parseDate(s);
+  if (!d) return "-";
+  return d.toLocaleString("es-AR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
 
 /* Estados terminales de la compra */
 const TERMINAL = new Set(["recibida", "cancelada", "cobrada"]);
@@ -130,7 +170,10 @@ export default function ComprasList() {
   const totalRows = comprasOrdenadas.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const pageSafe = Math.min(page, totalPages);
-  const rows = comprasOrdenadas.slice((pageSafe - 1) * pageSize, pageSafe * pageSize);
+  const rows = comprasOrdenadas.slice(
+    (pageSafe - 1) * pageSize,
+    pageSafe * pageSize
+  );
 
   useEffect(() => {
     setPage(1);
@@ -162,7 +205,9 @@ export default function ComprasList() {
       return;
     }
     if (TERMINAL.has(estadoActual)) {
-      alert("No podés cancelar una compra en estado terminal (Recibida/Cancelada/Cobrada).");
+      alert(
+        "No podés cancelar una compra en estado terminal (Recibida/Cancelada/Cobrada)."
+      );
       return;
     }
 
@@ -171,7 +216,11 @@ export default function ComprasList() {
       alert("No se encontró el estado 'Cancelada'.");
       return;
     }
-    if (!window.confirm(`¿Cancelar la compra #${id}? Esta acción es definitiva.`))
+    if (
+      !window.confirm(
+        `¿Cancelar la compra #${id}? Esta acción es definitiva.`
+      )
+    )
       return;
 
     try {
@@ -210,7 +259,8 @@ export default function ComprasList() {
       const detalle = normalizeList(det);
 
       for (const r of detalle) {
-        const idInsumo = r.id_insumo ?? r.insumo_id ?? r?.id_insumo?.id_insumo;
+        const idInsumo =
+          r.id_insumo ?? r.insumo_id ?? r?.id_insumo?.id_insumo;
         const cantFardos = toNumber(r.detcom_cantidad, 0); // cantidad de fardos / unidades compradas
         if (!idInsumo || !(cantFardos > 0)) continue;
 
@@ -239,259 +289,53 @@ export default function ComprasList() {
 
   return (
     <DashboardLayout>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 12,
-        }}
-      >
-        <h2 style={{ margin: 0 }}>Compras</h2>
-        <Link to="/compras/registrar" className="btn btn-primary">
-          Registrar Compra
-        </Link>
-      </div>
+      {/* ✅ Scope para que el CSS no sea global */}
+      <div className="compras-list-scope">
+        <ComprasListHeader />
 
-      {/* Filtros */}
-      <div className="filters">
-        <input
-          className="ctl"
-          placeholder="Buscar (ID, desc., empleado, proveedor)"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
+        <ComprasListFilters
+          q={q}
+          setQ={setQ}
+          fProv={fProv}
+          setFProv={setFProv}
+          fEstado={fEstado}
+          setFEstado={setFEstado}
+          orderBy={orderBy}
+          setOrderBy={setOrderBy}
+          pageSize={pageSize}
+          setPageSize={setPageSize}
+          estados={estados}
+          proveedores={proveedores}
         />
-        <select
-          className="ctl"
-          value={fProv}
-          onChange={(e) => setFProv(e.target.value)}
-        >
-          <option value="">Proveedor (todos)</option>
-          {proveedores.map((p) => (
-            <option key={p.id_proveedor} value={p.id_proveedor}>
-              {p.prov_nombre}
-            </option>
-          ))}
-        </select>
-        <select
-          className="ctl"
-          value={fEstado}
-          onChange={(e) => setFEstado(e.target.value)}
-        >
-          <option value="">Estado (todos)</option>
-          {estados.map((e) => (
-            <option
-              key={e.id_estado_compra ?? e.id}
-              value={e.estcom_nombre ?? e.nombre}
-            >
-              {e.estcom_nombre ?? e.nombre}
-            </option>
-          ))}
-        </select>
 
-        <select
-          className="ctl"
-          value={orderBy}
-          onChange={(e) => setOrderBy(e.target.value)}
-          title="Ordenar por"
-        >
-          <option value="fecha_desc">Fecha (más cerca → más lejos)</option>
-          <option value="fecha_asc">Fecha (más lejos → más cerca)</option>
-          <option value="monto_asc">Monto (menor → mayor)</option>
-          <option value="monto_desc">Monto (mayor → menor)</option>
-        </select>
+        {loading ? (
+          <p>Cargando...</p>
+        ) : (
+          <>
+            <ComprasListTable
+              rows={rows}
+              fmtMoney={fmtMoney}
+              lower={lower}
+              TERMINAL={TERMINAL}
+              onRecibir={handleRecibir}
+              onCancelar={handleCancelar}
+              /* 🔹 NUEVO: formateador de fecha para la tabla */
+              fmtDateTime={fmtDateTime}
+            />
 
-        <div className="spacer" />
-        <select
-          className="ctl"
-          value={pageSize}
-          onChange={(e) => setPageSize(Number(e.target.value))}
-          style={{ width: 90 }}
-        >
-          {[5, 10, 20, 50].map((n) => (
-            <option key={n} value={n}>
-              {n}/pág
-            </option>
-          ))}
-        </select>
+            <ComprasListPagination
+              pageSafe={pageSafe}
+              totalPages={totalPages}
+              setPage={setPage}
+            />
+          </>
+        )}
       </div>
-
-      {loading ? (
-        <p>Cargando...</p>
-      ) : (
-        <>
-          <div className="table-wrap">
-            <table className="table-dark">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Fecha/Hora</th>
-                  <th>Empleado</th>
-                  <th>Proveedor</th>
-                  <th>Estado</th>
-                  <th>Pagado</th>
-                  <th>Monto</th>
-                  <th>Descripción</th>
-                  <th style={{ width: 260 }}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((c) => {
-                  const id = c.id_compra ?? c.id;
-                  const estado = c.estado_nombre ?? "";
-                  const estadoKey = lower(estado);
-                  const pagado = (c.com_pagado ?? 2) === 1;
-                  const isTerminal = TERMINAL.has(estadoKey) || pagado;
-
-                  const puedeCobrar =
-                    !pagado && estadoKey === "recibida"; // solo recibida y no pagada
-
-                  return (
-                    <tr key={id}>
-                      <td>{id}</td>
-                      <td>{c.com_fecha_hora ?? "-"}</td>
-                      <td>{c.empleado_nombre ?? "-"}</td>
-                      <td>{c.proveedor_nombre ?? "-"}</td>
-                      <td>{estado || "-"}</td>
-                      <td>{pagado ? "Sí" : "No"}</td>
-                      <td>{fmtMoney(c.com_monto)}</td>
-                      <td>{c.com_descripcion ?? "-"}</td>
-                      <td
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <Link
-                          to={`/compras/detalles/${id}`}
-                          className="btn btn-secondary"
-                          title="Ver detalle de renglones"
-                        >
-                          Ver detalles
-                        </Link>
-
-                        <Link
-                          to={`/compras/editar/${id}`}
-                          className="btn btn-secondary"
-                          style={{
-                            opacity: isTerminal ? 0.5 : 1,
-                            pointerEvents: isTerminal ? "none" : "auto",
-                          }}
-                          title={
-                            isTerminal
-                              ? "No editable en estado terminal o pagada"
-                              : "Editar"
-                          }
-                        >
-                          Editar
-                        </Link>
-
-                        {puedeCobrar && (
-                          <Link
-                            to={`/cobros/registrar/${id}`}
-                            className="btn btn-pay"
-                            title="Registrar pago de la compra"
-                          >
-                            Pagar
-                          </Link>
-                        )}
-
-                        <button
-                          className="btn btn-receive"
-                          onClick={() => handleRecibir(c)}
-                          disabled={isTerminal}
-                          title="Marcar como Recibida (suma stock)"
-                        >
-                          Recibir
-                        </button>
-
-                        <button
-                          className="btn btn-cancel"
-                          onClick={() => handleCancelar(c)}
-                          disabled={isTerminal}
-                          title="Cancelar compra"
-                        >
-                          Cancelar
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {!rows.length && (
-                  <tr>
-                    <td colSpan={9} style={{ textAlign: "center", opacity: 0.7 }}>
-                      Sin resultados
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Paginación */}
-          <div className="paginate">
-            <button
-              className="btn"
-              onClick={() => setPage(1)}
-              disabled={pageSafe <= 1}
-            >
-              «
-            </button>
-            <button
-              className="btn"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={pageSafe <= 1}
-            >
-              ‹
-            </button>
-            <span>
-              Página {pageSafe} de {totalPages}
-            </span>
-            <button
-              className="btn"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={pageSafe >= totalPages}
-            >
-              ›
-            </button>
-            <button
-              className="btn"
-              onClick={() => setPage(totalPages)}
-              disabled={pageSafe >= totalPages}
-            >
-              »
-            </button>
-          </div>
-        </>
-      )}
-
-      <style>{styles}</style>
     </DashboardLayout>
   );
 }
 
-/* ===== Estilos ===== */
-const styles = `
-.table-wrap { overflow:auto; margin-top:8px; }
-.table-dark { width:100%; border-collapse: collapse; background:#121212; color:#eaeaea; }
-.table-dark th, .table-dark td { border:1px solid #232323; padding:10px; vertical-align:top; }
 
-.filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
-.filters .ctl { background:#0f0f0f; color:#fff; border:1px solid #2a2a2a; border-radius:8px; padding:8px 10px; }
-.filters .spacer { flex:1; }
-
-.btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
-.btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
-.btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
-.btn-receive { background:#16a34a; color:#fff; }
-.btn-receive:disabled { opacity:.5; cursor:not-allowed; }
-.btn-cancel { background:#dc2626; color:#fff; }
-.btn-cancel:disabled { opacity:.5; cursor:not-allowed; }
-.btn-pay { background:#fbbf24; color:#111827; }
-
-.paginate { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:10px; }
-`;
 
 
 

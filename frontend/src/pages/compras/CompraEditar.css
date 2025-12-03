@@ -1,0 +1,65 @@
+/* Todo scoped dentro de compra-editar-scope */
+
+.compra-editar-scope .form .row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.compra-editar-scope .form label {
+  min-width: 220px;
+  text-align: right;
+  color: #d1d5db;
+}
+
+.compra-editar-scope textarea,
+.compra-editar-scope input,
+.compra-editar-scope select {
+  width: 100%;
+  background: #0f0f0f;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.compra-editar-scope .table-wrap {
+  overflow: auto;
+  margin-top: 6px;
+}
+
+.compra-editar-scope .table-dark {
+  width: 100%;
+  border-collapse: collapse;
+  background: #121212;
+  color: #eaeaea;
+}
+
+.compra-editar-scope .table-dark th,
+.compra-editar-scope .table-dark td {
+  border: 1px solid #232323;
+  padding: 10px;
+  vertical-align: top;
+}
+
+.compra-editar-scope .btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.compra-editar-scope .btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.compra-editar-scope .btn-secondary {
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+}

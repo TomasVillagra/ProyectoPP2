@@ -3,7 +3,14 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 
-// ===== Utils =====
+import CompraEditarHeader from "../../components/compras/CompraEditarHeader";
+import CompraEditarCabecera from "../../components/compras/CompraEditarCabecera";
+import CompraEditarDetalleTable from "../../components/compras/CompraEditarDetalleTable";
+import CompraEditarFooter from "../../components/compras/CompraEditarFooter";
+
+import "./CompraEditar.css";
+
+// ===== Utils (IGUALES a tu código original) =====
 const toDec = (v) => {
   if (v === "" || v === null || v === undefined) return "";
   let s = String(v).replace(/,/g, ".").replace(/[^\d.]/g, "");
@@ -35,7 +42,6 @@ export default function CompraEditar() {
   const [insumos, setInsumos] = useState([]);
   const [proveedores, setProveedores] = useState([]);
 
-  // 🔹 vínculos proveedor–insumo (como en CompraRegistrar)
   const [linksProvInsumo, setLinksProvInsumo] = useState([]);
 
   const [form, setForm] = useState({
@@ -108,7 +114,7 @@ export default function CompraEditar() {
     load();
   }, [id]);
 
-  // 🔹 Cuando ya tengo el proveedor de la compra, traigo vínculos proveedor–insumo
+  // vínculos proveedor–insumo
   useEffect(() => {
     const fetchLinks = async () => {
       if (!form.id_proveedor) {
@@ -125,7 +131,6 @@ export default function CompraEditar() {
       } catch (e) {
         console.error(e);
         setLinksProvInsumo([]);
-        // no corto el flujo, sólo aviso
         setMsg((m) =>
           (m ? m + "\n" : "") +
           "No se pudieron cargar los insumos vinculados al proveedor."
@@ -137,10 +142,9 @@ export default function CompraEditar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.id_proveedor]);
 
-  // 🔹 Insumos disponibles = sólo los vinculados al proveedor
+  // Insumos disponibles = sólo los vinculados al proveedor (o todos si no hay vínculos)
   const insumosDisponibles = useMemo(() => {
     if (!linksProvInsumo.length) {
-      // fallback: si no hay vínculos, uso todos para no romper compras viejas
       return insumos;
     }
     const ids = new Set(linksProvInsumo.map((l) => Number(l.id_insumo)));
@@ -149,6 +153,19 @@ export default function CompraEditar() {
     );
   }, [linksProvInsumo, insumos]);
 
+  // Mapa de precios por insumo (como en CompraRegistrar)
+  const precioByInsumo = useMemo(() => {
+    const m = new Map();
+    linksProvInsumo.forEach((r) => {
+      const idIns = Number(r.id_insumo);
+      const precio = Number(r.precio_unitario ?? 0);
+      if (idIns && precio > 0) {
+        m.set(idIns, precio);
+      }
+    });
+    return m;
+  }, [linksProvInsumo]);
+
   // ===== Handlers =====
   const onChange = (e) =>
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -156,13 +173,24 @@ export default function CompraEditar() {
   const setRow = (index, field, value) => {
     setRows((prev) => {
       const copy = [...prev];
-      copy[index] = {
+      const newRow = {
         ...copy[index],
         [field]:
           field.includes("cantidad") || field.includes("precio")
             ? toDec(value)
             : value,
       };
+
+      // 👉 si cambia el insumo, traemos el precio del proveedor (si existe)
+      if (field === "id_insumo") {
+        const pid = Number(value || 0);
+        const precio = Number(precioByInsumo.get(pid) || 0);
+        if (precio > 0 && !newRow.detcom_precio_uni) {
+          newRow.detcom_precio_uni = String(precio);
+        }
+      }
+
+      copy[index] = newRow;
       return copy;
     });
   };
@@ -186,12 +214,49 @@ export default function CompraEditar() {
     [rows]
   );
 
+  // Insumos sin repetir por fila + filtrados por proveedor (misma lógica)
+  const opcionesInsumosPorFila = (index) => {
+    const selectedId = Number(rows[index]?.id_insumo || 0);
+    const usedIds = new Set(
+      rows
+        .filter((_, i) => i !== index)
+        .map((r) => Number(r.id_insumo || 0))
+    );
+
+    let baseList =
+      insumosDisponibles && insumosDisponibles.length
+        ? insumosDisponibles
+        : insumos;
+
+    let opts = baseList.filter((ins) => {
+      const idIns = Number(ins.id_insumo ?? ins.id ?? 0);
+      if (!idIns) return false;
+      if (idIns === selectedId) return true;
+      return !usedIds.has(idIns);
+    });
+
+    if (
+      selectedId &&
+      !opts.some(
+        (ins) => Number(ins.id_insumo ?? ins.id ?? 0) === selectedId
+      )
+    ) {
+      const extra = insumos.find(
+        (ins) => Number(ins.id_insumo ?? ins.id ?? 0) === selectedId
+      );
+      if (extra) {
+        opts = [extra, ...opts];
+      }
+    }
+
+    return opts;
+  };
+
   // ===== Guardar =====
   const onSubmit = async (e) => {
     e.preventDefault();
     setMsg("");
 
-    // Los campos de cabecera no se pueden editar, pero igual validamos que existan
     if (!form.id_empleado || !form.id_estado_compra) {
       setMsg("Falta información de cabecera (empleado/estado).");
       return;
@@ -201,7 +266,6 @@ export default function CompraEditar() {
       return;
     }
 
-    // la compra no puede quedar sin insumos válidos
     if (!rows.length || rows.every((r) => !r.id_insumo)) {
       setMsg("La compra debe tener al menos un insumo.");
       return;
@@ -223,7 +287,7 @@ export default function CompraEditar() {
     }
 
     try {
-      // 1) Actualizar cabecera (solo monto cambia, el resto queda igual)
+      // 1) Actualizar cabecera
       await api.put(`/api/compras/${id}/`, {
         id_empleado: Number(form.id_empleado),
         id_estado_compra: Number(form.id_estado_compra),
@@ -266,279 +330,45 @@ export default function CompraEditar() {
     }
   };
 
-  // ===== Insumos sin repetir por fila + filtrados por proveedor =====
-  const opcionesInsumosPorFila = (index) => {
-    const selectedId = Number(rows[index]?.id_insumo || 0);
-    const usedIds = new Set(
-      rows
-        .filter((_, i) => i !== index)
-        .map((r) => Number(r.id_insumo || 0))
-    );
-
-    // base: insumos filtrados por proveedor (o todos si no hay vínculos)
-    let baseList = insumosDisponibles && insumosDisponibles.length
-      ? insumosDisponibles
-      : insumos;
-
-    let opts = baseList.filter((ins) => {
-      const idIns = Number(ins.id_insumo ?? ins.id ?? 0);
-      if (!idIns) return false;
-      if (idIns === selectedId) return true; // mantener el actual
-      return !usedIds.has(idIns); // evitar repetidos en otros renglones
-    });
-
-    // Si el insumo actualmente seleccionado no está en la lista (por ejemplo,
-    // una compra antigua con un insumo que ya no está vinculado al proveedor),
-    // lo agregamos para no romper el select.
-    if (
-      selectedId &&
-      !opts.some(
-        (ins) => Number(ins.id_insumo ?? ins.id ?? 0) === selectedId
-      )
-    ) {
-      const extra = insumos.find(
-        (ins) => Number(ins.id_insumo ?? ins.id ?? 0) === selectedId
-      );
-      if (extra) {
-        opts = [extra, ...opts];
-      }
-    }
-
-    return opts;
-  };
+  const handleCancel = () => navigate("/compras");
 
   return (
     <DashboardLayout>
-      <h2 style={{ margin: 0, marginBottom: 4 }}>Editar Compra #{id}</h2>
-      <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, opacity: 0.9 }}>
-        En esta pantalla solo podés editar <strong>los insumos (cantidad, agregar/quitar renglones)</strong>.
-        El <strong>precio unitario no se puede modificar</strong> y los datos de cabecera (empleado, proveedor, estado, fecha, pagado) tampoco.
-      </p>
-      {msg && <p style={{ whiteSpace: "pre-wrap" }}>{msg}</p>}
-
-      <form onSubmit={onSubmit} className="form">
-        {/* Empleado (solo lectura) */}
-        <div className="row">
-          <label>Empleado =</label>
-          <select
-            name="id_empleado"
-            value={form.id_empleado}
-            disabled
-          >
-            <option value="">-- Seleccioná --</option>
-            {empleados.map((e) => (
-              <option key={e.id_empleado ?? e.id} value={e.id_empleado ?? e.id}>
-                {(e.emp_nombre ?? e.nombre ?? "") +
-                  " " +
-                  (e.emp_apellido ?? e.apellido ?? "")}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Proveedor (solo lectura) */}
-        <div className="row">
-          <label>Proveedor =</label>
-          <select
-            name="id_proveedor"
-            value={form.id_proveedor}
-            disabled
-          >
-            <option value="">-- Seleccioná --</option>
-            {proveedores
-              .filter((p) => {
-                const est = String(p.estado_nombre ?? p.prov_estado ?? "").toLowerCase();
-                const idEst = Number(p.id_estado_proveedor ?? p.estado ?? 0);
-                const isActivo = est === "activo" || idEst === 1;
-                const idProv = String(p.id_proveedor ?? p.id ?? "");
-                return isActivo || idProv === String(form.id_proveedor);
-              })
-              .map((p) => (
-                <option key={p.id_proveedor ?? p.id} value={p.id_proveedor ?? p.id}>
-                  {p.prov_nombre ?? p.nombre}
-                </option>
-              ))}
-          </select>
-        </div>
-
-        {/* Estado (solo lectura) */}
-        <div className="row">
-          <label>Estado =</label>
-          <select
-            name="id_estado_compra"
-            value={form.id_estado_compra}
-            disabled
-          >
-            <option value="">-- Seleccioná --</option>
-            {estados.map((s) => (
-              <option
-                key={s.id_estado_compra ?? s.id}
-                value={s.id_estado_compra ?? s.id}
-              >
-                {s.estcom_nombre ?? s.nombre}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Descripción (solo lectura) */}
-        <div className="row">
-          <label>Descripción =</label>
-          <input
-            name="com_descripcion"
-            value={form.com_descripcion}
-            readOnly
+      <div className="compra-editar-scope">
+        <CompraEditarHeader id={id} msg={msg} />
+        <form onSubmit={onSubmit} className="form">
+          <CompraEditarCabecera
+            form={form}
+            empleados={empleados}
+            estados={estados}
+            proveedores={proveedores}
           />
-        </div>
 
-        {/* Fecha / Hora (solo lectura) */}
-        <div className="row">
-          <label>Fecha/Hora =</label>
-          <input
-            name="com_fecha_hora"
-            value={form.com_fecha_hora}
-            readOnly
+          <h3 style={{ marginTop: 18, marginBottom: 8 }}>Detalle</h3>
+
+          <CompraEditarDetalleTable
+            rows={rows}
+            setRow={setRow}
+            removeRow={removeRow}
+            opcionesInsumosPorFila={opcionesInsumosPorFila}
+            blockInvalidDecimal={blockInvalidDecimal}
+            calcSubtotal={calcSubtotal}
           />
-        </div>
 
-        {/* Pagado (solo lectura) */}
-        <div className="row">
-          <label>Pagado =</label>
-          <select
-            name="com_pagado"
-            value={form.com_pagado}
-            disabled
-          >
-            <option value="2">No</option>
-            <option value="1">Sí</option>
-          </select>
-        </div>
-
-        {/* Detalle */}
-        <h3 style={{ marginTop: 18, marginBottom: 8 }}>Detalle</h3>
-        <div className="table-wrap">
-          <table className="table-dark">
-            <thead>
-              <tr>
-                <th>Insumo</th>
-                <th style={{ width: 140 }}>Cantidad</th>
-                <th style={{ width: 160 }}>Precio unit.</th>
-                <th style={{ width: 140 }}>Subtotal</th>
-                <th style={{ width: 100 }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => {
-                const opciones = opcionesInsumosPorFila(i);
-                return (
-                  <tr key={i}>
-                    <td>
-                      <select
-                        value={r.id_insumo}
-                        onChange={(e) =>
-                          setRow(i, "id_insumo", e.target.value)
-                        }
-                      >
-                        <option value="">-- Seleccioná --</option>
-                        {opciones.map((ins) => (
-                          <option
-                            key={ins.id_insumo ?? ins.id}
-                            value={ins.id_insumo ?? ins.id}
-                          >
-                            {ins.ins_nombre ?? ins.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={r.detcom_cantidad}
-                        onChange={(e) =>
-                          setRow(i, "detcom_cantidad", e.target.value)
-                        }
-                        onKeyDown={blockInvalidDecimal}
-                        placeholder="0.000"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={r.detcom_precio_uni}
-                        readOnly
-                        placeholder="0.000"
-                        style={{ opacity: 0.75, cursor: "not-allowed" }}
-                        title="El precio unitario de la compra no se puede modificar."
-                      />
-                    </td>
-                    <td>${calcSubtotal(r).toFixed(2)}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        onClick={() => removeRow(i)}
-                        disabled={rows.length === 1}
-                      >
-                        Quitar
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        <div style={{ marginTop: 8, marginBottom: 12 }}>
-          <button type="button" className="btn btn-secondary" onClick={addRow}>
-            Agregar renglón
-          </button>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 12,
-          }}
-        >
-          <strong>Total = ${total.toFixed(2)}</strong>
-        </div>
-
-        <div>
-          <button type="submit" className="btn btn-primary">
-            Guardar
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => navigate("/compras")}
-            style={{ marginLeft: 10 }}
-          >
-            Cancelar
-          </button>
-        </div>
-      </form>
-
-      <style>{styles}</style>
+          <CompraEditarFooter
+            total={total}
+            onCancel={handleCancel}
+            addRow={addRow}
+            form={form}
+            insumosDisponibles={insumosDisponibles}
+          />
+        </form>
+      </div>
     </DashboardLayout>
   );
 }
 
-const styles = `
-.form .row { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
-.form label { min-width:220px; text-align:right; color:#d1d5db; }
-textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px solid #2a2a2a; border-radius:8px; padding:10px 12px; }
-.table-wrap { overflow:auto; margin-top:6px; }
-.table-dark { width:100%; border-collapse: collapse; background:#121212; color:#eaeaea; }
-.table-dark th, .table-dark td { border:1px solid #232323; padding:10px; vertical-align:top; }
-.btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
-.btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
-.btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
-`;
+
 
 
 

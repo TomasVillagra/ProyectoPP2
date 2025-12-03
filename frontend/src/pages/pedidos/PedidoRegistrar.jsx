@@ -1,7 +1,13 @@
+// src/pages/pedidos/PedidoRegistrar.jsx
+
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
+
+import PedidoFormRow from "../../components/pedidos/PedidoFormRow";
+import PedidoDetalleRow from "../../components/pedidos/PedidoDetalleRow";
+import "./PedidoRegistrar.css";
 
 /* ===== util comunes ===== */
 function normalize(resp) {
@@ -166,7 +172,6 @@ async function fetchInsumo(insumoId) {
 }
 
 /* ===== reservas de stock por pedidos pendientes ===== */
-/** Devuelve true si el pedido está "abierto" (no entregado ni cancelado) */
 function isPedidoAbierto(p) {
   const nombre = (p.estado_nombre ?? p.estped_nombre ?? p.estado ?? "")
     .toString()
@@ -176,7 +181,6 @@ function isPedidoAbierto(p) {
   return true;
 }
 
-/** Trae pedidos abiertos (que reservan stock) */
 async function fetchPedidosAbiertos() {
   const urls = ["/api/pedidos/", "/api/pedido/"];
   for (const u of urls) {
@@ -191,7 +195,6 @@ async function fetchPedidosAbiertos() {
   return [];
 }
 
-/** Trae detalles de un pedido */
 async function fetchDetallesPedido(pedidoId) {
   const urls = [
     `/api/detalle-pedidos/?id_pedido=${pedidoId}`,
@@ -208,21 +211,14 @@ async function fetchDetallesPedido(pedidoId) {
   return [];
 }
 
-/** Valida un ítem con lógica "mixta":
- *  1) Primero usa el stock del PLATO.
- *  2) Si no alcanza, el resto lo cubre con INSUMOS de la receta.
- *  3) Lo hace considerando también los pedidos ABIERTOS que ya reservan stock.
- */
 async function validarStockItem({ id_plato, cantidad }) {
   const platoId = Number(id_plato);
   const cantNueva = Number(cantidad);
   if (!platoId || !cantNueva) return null;
 
-  // 1) Plato y receta
   const plato = await fetchPlato(platoId);
   const receta = await fetchRecetaDePlato(platoId);
 
-  // Si no hay plato ni receta, no se puede validar nada
   if (!plato && !receta) {
     return {
       platoId,
@@ -231,10 +227,9 @@ async function validarStockItem({ id_plato, cantidad }) {
     };
   }
 
-  // ===== CASO SIN RECETA: sólo descuenta platos =====
   if (!receta) {
     const pedidosAbiertos = await fetchPedidosAbiertos();
-    let capPlato = readPlatoStockField(plato); // capacidad de platos disponibles
+    let capPlato = readPlatoStockField(plato);
 
     for (const ped of pedidosAbiertos) {
       const pid = ped.id_pedido ?? ped.id;
@@ -244,7 +239,7 @@ async function validarStockItem({ id_plato, cantidad }) {
         const detPlatoId = Number(det.id_plato ?? det.plato ?? det.plato_id ?? 0);
         if (detPlatoId !== platoId) continue;
         const q = getNumber(det.detped_cantidad ?? det.cantidad ?? 0);
-        capPlato -= q; // restamos platos para pedidos abiertos
+        capPlato -= q;
       }
     }
 
@@ -257,14 +252,10 @@ async function validarStockItem({ id_plato, cantidad }) {
     };
   }
 
-  // ===== CASO CON RECETA: mezcla platos + insumos =====
-
-  // Detalle de receta (insumos que usa el plato)
   const recetaId =
     receta.id_receta ?? receta.id ?? receta.receta_id ?? receta.rec_id ?? null;
   const detsReceta = recetaId ? await fetchDetallesReceta(recetaId) : [];
   if (!detsReceta.length) {
-    // Hay receta pero sin insumos cargados
     const pedidosAbiertos = await fetchPedidosAbiertos();
     let capPlato = readPlatoStockField(plato);
 
@@ -288,8 +279,7 @@ async function validarStockItem({ id_plato, cantidad }) {
     };
   }
 
-  // 2) Cargar capacidades: stock del plato y de los insumos
-  let capPlato = readPlatoStockField(plato); // platos posibles
+  let capPlato = readPlatoStockField(plato);
   const capInsumos = {};
   const insumoInfo = {};
 
@@ -305,20 +295,16 @@ async function validarStockItem({ id_plato, cantidad }) {
     }
   }
 
-  // Helper para consumir una cantidad de platos (primero de platos, luego de insumos)
   function consumirCantidad(cant, recolectarFaltantes) {
     let restante = cant;
 
-    // 1) consumir desde stock de plato
     const usarPlato = Math.min(capPlato, restante);
     capPlato -= usarPlato;
     restante -= usarPlato;
 
-    if (restante <= 0) return null; // todo cubierto con platos
+    if (restante <= 0) return null;
 
-    // 2) consumir desde insumos para 'restante' platos
     const faltantes = [];
-    // Chequeo previo: ver si hay insumos suficientes
     for (const det of detsReceta) {
       const insumoId = Number(
         det.id_insumo ?? det.insumo ?? det.insumo_id ?? det.id ?? 0
@@ -338,15 +324,19 @@ async function validarStockItem({ id_plato, cantidad }) {
             disponible: disp,
           });
         } else {
-          // si no recolectamos, igual marcamos que no alcanza
-          return [{ nombre: `Insumo #${insumoId}`, requerido: req, disponible: capInsumos[insumoId] ?? 0 }];
+          return [
+            {
+              nombre: `Insumo #${insumoId}`,
+              requerido: req,
+              disponible: capInsumos[insumoId] ?? 0,
+            },
+          ];
         }
       }
     }
 
     if (faltantes.length) return faltantes;
 
-    // Si alcanzan, restamos definitivamente
     for (const det of detsReceta) {
       const insumoId = Number(
         det.id_insumo ?? det.insumo ?? det.insumo_id ?? det.id ?? 0
@@ -360,7 +350,6 @@ async function validarStockItem({ id_plato, cantidad }) {
     return null;
   }
 
-  // 3) Aplicar la lógica de consumo a los pedidos ABIERTOS primero
   const pedidosAbiertos = await fetchPedidosAbiertos();
   for (const ped of pedidosAbiertos) {
     const pid = ped.id_pedido ?? ped.id;
@@ -371,16 +360,12 @@ async function validarStockItem({ id_plato, cantidad }) {
       if (detPlatoId !== platoId) continue;
       const q = getNumber(det.detped_cantidad ?? det.cantidad ?? 0);
       if (!q) continue;
-      // Para pedidos ya existentes NO queremos cortar aunque "falten" insumos,
-      // asumimos que ya fueron aceptados. Sólo consumimos capacidad.
       consumirCantidad(q, false);
     }
   }
 
-  // 4) Intentar consumir para EL NUEVO pedido
   const faltasNuevo = consumirCantidad(cantNueva, true);
   if (!faltasNuevo || !faltasNuevo.length) {
-    // Alcanzó usando primero platos y luego insumos
     return null;
   }
 
@@ -421,10 +406,8 @@ export default function PedidoRegistrar() {
   const [msg, setMsg] = useState("");
   const [catalogMsg, setCatalogMsg] = useState([]);
 
-  // Cliente SIEMPRE nuevo
   const [nuevoNombre, setNuevoNombre] = useState("");
 
-  /* ===== detectar “Para llevar” en tipos ===== */
   const isParaLlevarById = (idTipo) => {
     const t = tipos.find(
       (x) => String(x.id_tipo_pedido ?? x.id) === String(idTipo)
@@ -479,17 +462,31 @@ export default function PedidoRegistrar() {
         "/api/estado-mesas/",
       ]);
       setEstadosMesa(estMesaArr || []);
-
-      // platos con receta
+      
       const recetas = await fetchTodasLasRecetas();
+
+      // 👉 Solo platos cuya receta tenga al menos 1 insumo
       const ids = new Set();
-      recetas.forEach((r) => {
-        const idp = pickIdPlatoFromReceta(r);
-        if (idp) ids.add(Number(idp));
-      });
+
+      for (const r of recetas) {
+        const idPlato = pickIdPlatoFromReceta(r);
+        const recetaId =
+          r.id_receta ?? r.id ?? r.receta_id ?? r.rec_id ?? null;
+
+        if (!idPlato || !recetaId) continue;
+
+        // Traemos los detalles de la receta
+        const dets = await fetchDetallesReceta(recetaId);
+
+        // Solo aceptamos platos cuya receta tenga por lo menos un insumo
+        if (Array.isArray(dets) && dets.length > 0) {
+          ids.add(Number(idPlato));
+        }
+      }
+
       setPlatosConReceta(ids);
 
-      // Estado por defecto: En Proceso
+
       const enProc =
         estadosArr.find(
           (s) =>
@@ -513,7 +510,6 @@ export default function PedidoRegistrar() {
     })();
   }, []);
 
-  /* Validación rápida de filas */
   const validateRows = (rows) => {
     const out = {};
     rows.forEach((r, i) => {
@@ -533,7 +529,6 @@ export default function PedidoRegistrar() {
   const onChange = (e) => {
     const { name, value } = e.target;
 
-    // si cambia el tipo a “para llevar”, limpiar mesa
     if (name === "id_tipo_pedido") {
       const v = sanitizeInt(value);
       const willBeParaLlevar = (() => {
@@ -615,7 +610,6 @@ export default function PedidoRegistrar() {
     return it?.id_estado_pedido ?? it?.id;
   };
 
-  /* Cliente SIEMPRE nuevo */
   const createClienteRaw = async (nombre) => {
     const body = { cli_nombre: nombre };
     const { data } = await api.post("/api/clientes/", body);
@@ -647,7 +641,6 @@ export default function PedidoRegistrar() {
     return Number(id);
   };
 
-  /* ===== Submit con validación de stock (incluye pedidos abiertos) ===== */
   const onSubmit = async (e) => {
     e.preventDefault();
     setMsg("");
@@ -741,7 +734,6 @@ export default function PedidoRegistrar() {
         )
       );
 
-      // Estado de mesa: si no es para llevar
       try {
         if (!isParaLlevar && form.id_mesa) {
           const estadoId = Number(form.id_estado_pedido);
@@ -792,9 +784,7 @@ export default function PedidoRegistrar() {
       {msg && <pre style={{ whiteSpace: "pre-wrap" }}>{msg}</pre>}
 
       <form onSubmit={onSubmit} className="form">
-        {/* Tipo de pedido */}
-        <div className="row">
-          <label htmlFor="id_tipo_pedido">Tipo =</label>
+        <PedidoFormRow label="Tipo =" htmlFor="id_tipo_pedido">
           <select
             id="id_tipo_pedido"
             name="id_tipo_pedido"
@@ -808,10 +798,9 @@ export default function PedidoRegistrar() {
               </option>
             ))}
           </select>
-        </div>
+        </PedidoFormRow>
 
-        <div className="row">
-          <label htmlFor="id_mesa">Mesa =</label>
+        <PedidoFormRow label="Mesa =" htmlFor="id_mesa">
           {isParaLlevar ? (
             <input value="(No aplica: Para llevar)" disabled />
           ) : (
@@ -830,29 +819,25 @@ export default function PedidoRegistrar() {
               ))}
             </select>
           )}
-        </div>
+        </PedidoFormRow>
 
-        <div className="row">
-          <label>Empleado =</label>
+        <PedidoFormRow label="Empleado =">
           <input
             value={empleadoActual ? empleadoLabel(empleadoActual) : "—"}
             disabled
           />
-        </div>
+        </PedidoFormRow>
 
-        {/* Cliente: SIEMPRE nuevo */}
-        <div className="row">
-          <label>Cliente =</label>
+        <PedidoFormRow label="Cliente =">
           <input
             type="text"
             placeholder="Nombre del nuevo cliente (opcional)."
             value={nuevoNombre}
             onChange={(e) => setNuevoNombre(e.target.value)}
           />
-        </div>
+        </PedidoFormRow>
 
-        <div className="row">
-          <label>Estado =</label>
+        <PedidoFormRow label="Estado =">
           <input
             value={
               estadoLabel(
@@ -864,10 +849,12 @@ export default function PedidoRegistrar() {
             }
             disabled
           />
-        </div>
+        </PedidoFormRow>
 
-        <div className="row">
-          <label htmlFor="ped_fecha_hora_ini">Fecha y hora de inicio =</label>
+        <PedidoFormRow
+          label="Fecha y hora de inicio ="
+          htmlFor="ped_fecha_hora_ini"
+        >
           <input
             type="datetime-local"
             id="ped_fecha_hora_ini"
@@ -876,10 +863,9 @@ export default function PedidoRegistrar() {
             onChange={onChange}
             required
           />
-        </div>
+        </PedidoFormRow>
 
-        <div className="row">
-          <label htmlFor="ped_descripcion">Descripción =</label>
+        <PedidoFormRow label="Descripción =" htmlFor="ped_descripcion">
           <textarea
             id="ped_descripcion"
             name="ped_descripcion"
@@ -887,9 +873,8 @@ export default function PedidoRegistrar() {
             value={form.ped_descripcion}
             onChange={onChange}
           />
-        </div>
+        </PedidoFormRow>
 
-        {/* Detalles */}
         <h3 style={{ marginTop: 18, marginBottom: 8, color: "#fff" }}>
           Detalles
         </h3>
@@ -913,69 +898,29 @@ export default function PedidoRegistrar() {
                     )
                     .filter((v) => v)
                 );
-                const opciones = platosFiltrados.filter((p) => {
+                const opcionesPlatos = platosFiltrados.filter((p) => {
                   const idp = getPlatoId(p);
                   if (!idp) return false;
                   if (Number(row.id_plato) === idp) return true;
                   return !usados.has(idp);
                 });
 
+                const opciones = opcionesPlatos.map((p) => ({
+                  value: getPlatoId(p),
+                  label: platoLabel(p),
+                }));
+
                 return (
-                  <tr key={idx}>
-                    <td>
-                      <select
-                        value={row.id_plato}
-                        onChange={(ev) =>
-                          onRowChange(idx, "id_plato", ev.target.value)
-                        }
-                      >
-                        <option value="">
-                          — Seleccioná plato (con receta) —
-                        </option>
-                        {opciones.map((p) => (
-                          <option key={getPlatoId(p)} value={getPlatoId(p)}>
-                            {platoLabel(p)}
-                          </option>
-                        ))}
-                      </select>
-                      {e.id_plato && (
-                        <small className="err-inline">
-                          {e.id_plato}
-                        </small>
-                      )}
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={row.detped_cantidad}
-                        onChange={(ev) =>
-                          onRowChange(
-                            idx,
-                            "detped_cantidad",
-                            ev.target.value
-                          )
-                        }
-                        onKeyDown={blockInvalidInt}
-                        placeholder="0"
-                      />
-                      {e.detped_cantidad && (
-                        <small className="err-inline">
-                          {e.detped_cantidad}
-                        </small>
-                      )}
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        onClick={() => removeRow(idx)}
-                        disabled={detalles.length === 1}
-                      >
-                        Quitar
-                      </button>
-                    </td>
-                  </tr>
+                  <PedidoDetalleRow
+                    key={idx}
+                    row={row}
+                    idx={idx}
+                    error={e}
+                    opciones={opciones}
+                    onRowChange={onRowChange}
+                    onRemove={(i) => removeRow(i)}
+                    blockInvalidInt={blockInvalidInt}
+                  />
                 );
               })}
             </tbody>
@@ -995,6 +940,7 @@ export default function PedidoRegistrar() {
             type="button"
             className="btn btn-secondary"
             onClick={() => addRow()}
+            disabled={false}
           >
             Agregar renglón
           </button>
@@ -1017,24 +963,10 @@ export default function PedidoRegistrar() {
           </button>
         </div>
       </form>
-
-      <style>{styles}</style>
     </DashboardLayout>
   );
 }
 
-const styles = `
-.form .row { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
-.form label { min-width:220px; text-align:right; color:#d1d5db; }
-textarea, input, select { width:100%; background:#0f0f0f; color:#fff; border:1px solid #2a2a2a; border-radius:8px; padding:10px 12px; }
-.table-wrap { overflow:auto; margin-top:6px; }
-.table-dark { width:100%; border-collapse: collapse; background:#121212; color:#eaeaea; }
-.table-dark th, .table-dark td { border:1px solid #232323; padding:10px; vertical-align:top; }
-.err-inline { color:#fca5a5; font-size:12px; display:block; margin-top:6px; }
-.btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
-.btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
-.btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
-`;
 
 
 

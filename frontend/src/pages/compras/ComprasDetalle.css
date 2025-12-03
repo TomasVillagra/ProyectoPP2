@@ -1,0 +1,57 @@
+/* Scope general */
+.compras-detalle-scope .detalle-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.compras-detalle-scope .detalle-title {
+  margin: 0;
+}
+
+/* Card de resumen */
+.compras-detalle-scope .card {
+  background: #0f0f0f;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* Tabla */
+.compras-detalle-scope .table-wrap {
+  overflow: auto;
+}
+
+.compras-detalle-scope .table-dark {
+  width: 100%;
+  border-collapse: collapse;
+  background: #121212;
+  color: #eaeaea;
+}
+
+.compras-detalle-scope .table-dark th,
+.compras-detalle-scope .table-dark td {
+  border: 1px solid #232323;
+  padding: 10px;
+  vertical-align: top;
+}
+
+/* Botones */
+.compras-detalle-scope .btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.compras-detalle-scope .btn-secondary {
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+}

@@ -1,0 +1,96 @@
+/* Scope general */
+.caja-hist-detalle-scope .caja-hist-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.caja-hist-detalle-scope .caja-hist-title {
+  margin: 0;
+  color: #fff;
+}
+
+.caja-hist-detalle-scope .caja-hist-msg {
+  color: #facc15;
+  margin-top: 8px;
+}
+
+/* Cards */
+.caja-hist-detalle-scope .card-dark {
+  background: #121212;
+  border: 1px solid #232323;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.caja-hist-detalle-scope .label {
+  color: #a1a1aa;
+  font-size: 13px;
+}
+
+.caja-hist-detalle-scope .res-num {
+  font-size: 18px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.caja-hist-detalle-scope .res-num.ok {
+  color: #22c55e;
+}
+
+.caja-hist-detalle-scope .res-num.err {
+  color: #f97316;
+}
+
+.caja-hist-detalle-scope .caja-hist-resumen-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.caja-hist-detalle-scope .caja-hist-subtitle {
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+/* Tabla */
+.caja-hist-detalle-scope .table-wrap {
+  margin-top: 12px;
+  overflow: auto;
+}
+
+.caja-hist-detalle-scope .table-dark {
+  width: 100%;
+  border-collapse: collapse;
+  background: #121212;
+  color: #eaeaea;
+}
+
+.caja-hist-detalle-scope .table-dark th,
+.caja-hist-detalle-scope .table-dark td {
+  border: 1px solid #232323;
+  padding: 8px;
+  font-size: 13px;
+}
+
+.caja-hist-detalle-scope .table-dark th {
+  background: #18181b;
+}
+
+/* Botones */
+.caja-hist-detalle-scope .btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.caja-hist-detalle-scope .btn-secondary {
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+}

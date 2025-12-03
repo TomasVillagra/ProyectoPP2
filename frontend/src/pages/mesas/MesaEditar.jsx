@@ -3,6 +3,12 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 
+import MesaEditarHeader from "../../components/mesas/MesaEditarHeader";
+import MesaEditarForm from "../../components/mesas/MesaEditarForm";
+import MesaEditarActions from "../../components/mesas/MesaEditarActions";
+
+import "./MesaEditar.css";
+
 function normalize(resp) {
   if (Array.isArray(resp)) return resp;
   if (resp?.results) return resp.results;
@@ -16,53 +22,77 @@ const isBlockingEstado = (raw) => {
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase()
     .trim();
-  // Bloquea si el pedido está "entregado" o "en proceso"
-  return s === "entregado" || s === "en proceso" || s === "en_proceso" || s === "en-proceso";
+  return (
+    s === "entregado" ||
+    s === "en proceso" ||
+    s === "en_proceso" ||
+    s === "en-proceso"
+  );
 };
 
 export default function MesaEditar() {
   const { id } = useParams();
   const navigate = useNavigate();
+
   const [estados, setEstados] = useState([]);
   const [form, setForm] = useState({
     ms_numero: "",
     id_estado_mesa: "",
   });
+
   const [errors, setErrors] = useState({});
   const [msg, setMsg] = useState("");
-  const [bloqueada, setBloqueada] = useState(false); // BLOQUEA si tiene pedido Entregado/En proceso
+  const [bloqueada, setBloqueada] = useState(false);
 
   useEffect(() => {
-    api.get("/api/estados-mesa/").then(({data}) => setEstados(normalize(data))).catch(()=>{});
-    api.get(`/api/mesas/${id}/`).then(({data}) => {
-      setForm({
-        ms_numero: String(data.ms_numero ?? ""),
-        id_estado_mesa: String(
-          data.id_estado_mesa?.id_estado_mesa ?? data.id_estado_mesa ?? ""
-        ),
-      });
-    }).catch(e => {
-      console.error(e);
-      setMsg("No se pudo cargar la mesa.");
-    });
+    api
+      .get("/api/estados-mesa/")
+      .then(({ data }) => setEstados(normalize(data)))
+      .catch(() => {});
 
-    // Bloquear si hay pedido en estado Entregado o En proceso
-    api.get("/api/pedidos/", { params: { page_size: 1000 } })
-      .then(({data}) => {
+    api
+      .get(`/api/mesas/${id}/`)
+      .then(({ data }) => {
+        setForm({
+          ms_numero: String(data.ms_numero ?? ""),
+          id_estado_mesa: String(
+            data.id_estado_mesa?.id_estado_mesa ??
+              data.id_estado_mesa ??
+              ""
+          ),
+        });
+      })
+      .catch(() => setMsg("No se pudo cargar la mesa."));
+
+    api
+      .get("/api/pedidos/", { params: { page_size: 1000 } })
+      .then(({ data }) => {
         const list = normalize(data);
         const hasBlocking = list.some((p) => {
-          const estado = p?.estado_nombre ?? p?.id_estado_pedido?.estp_nombre ?? p?.estado ?? "";
-          const idMesa = p?.id_mesa?.id_mesa ?? p?.id_mesa ?? null;
-          return Number(idMesa) === Number(id) && isBlockingEstado(estado);
+          const estado =
+            p?.estado_nombre ??
+            p?.id_estado_pedido?.estp_nombre ??
+            p?.estado ??
+            "";
+          const idMesa =
+            p?.id_mesa?.id_mesa ??
+            p?.id_mesa ??
+            null;
+          return (
+            Number(idMesa) === Number(id) &&
+            isBlockingEstado(estado)
+          );
         });
         setBloqueada(hasBlocking);
       })
       .catch(() => {});
   }, [id]);
 
-  const sanitizeInt = (raw) => (raw ?? "").toString().replace(/[^\d]/g, "");
+  const sanitizeInt = (v) => (v ?? "").toString().replace(/[^\d]/g, "");
+
   const blockInvalidInt = (e) => {
-    if (["-","+","e","E",".",","," "].includes(e.key)) e.preventDefault();
+    if (["-", "+", "e", "E", ".", ",", " "].includes(e.key))
+      e.preventDefault();
   };
 
   const validateField = (name, value) => {
@@ -84,29 +114,39 @@ export default function MesaEditar() {
     const { name } = e.target;
     let { value } = e.target;
     if (name === "ms_numero") value = sanitizeInt(value);
-    const next = { ...form, [name]: value };
-    setForm(next);
-    setErrors((p) => ({ ...p, [name]: validateField(name, value) }));
+
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+
+    setErrors((prev) => ({
+      ...prev,
+      [name]: validateField(name, value),
+    }));
   };
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setMsg("");
 
-    const eAll = {};
-    Object.keys(form).forEach(k => {
-      const m = validateField(k, form[k]); if (m) eAll[k] = m;
+    const nextErrors = {};
+    Object.keys(form).forEach((k) => {
+      const m = validateField(k, form[k]);
+      if (m) nextErrors[k] = m;
     });
-    setErrors(eAll);
-    if (Object.keys(eAll).length) return;
-    if (bloqueada) return; // seguridad en front
+
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+    if (bloqueada) return;
 
     try {
       await api.put(`/api/mesas/${id}/`, {
         ms_numero: Number(form.ms_numero),
         id_estado_mesa: Number(form.id_estado_mesa),
       });
-      setMsg("Mesa actualizada");
+
+      setMsg("Mesa actualizada ✅");
       setTimeout(() => navigate("/mesas"), 700);
     } catch (err) {
       console.error(err);
@@ -116,72 +156,31 @@ export default function MesaEditar() {
 
   return (
     <DashboardLayout>
-      <h2 style={{margin:0, marginBottom:12}}>Editar Mesa</h2>
-      {bloqueada && (
-        <p style={{ color:"#facc15", marginBottom:12 }}>
-          Esta mesa tiene un pedido <strong>Entregado/En proceso</strong>: no se puede editar.
-        </p>
-      )}
-      {msg && <p>{msg}</p>}
+      <div className="mesa-edit-container">
+        <MesaEditarHeader bloqueada={bloqueada} />
 
-      <form onSubmit={onSubmit} className="form">
-        <div className="row">
-          <label htmlFor="ms_numero">Número =</label>
-          <input
-            id="ms_numero"
-            name="ms_numero"
-            type="text"
-            inputMode="numeric"
-            value={form.ms_numero}
+        {msg && <p className="mesa-edit-msg">{msg}</p>}
+
+        <form onSubmit={onSubmit} className="mesa-edit-form">
+          <MesaEditarForm
+            form={form}
+            errors={errors}
+            estados={estados}
+            bloqueada={bloqueada}
             onChange={onChange}
-            onKeyDown={blockInvalidInt}
-            required
-            disabled={bloqueada}
+            blockInvalidInt={blockInvalidInt}
           />
-        </div>
-        {errors.ms_numero && <small className="err">{errors.ms_numero}</small>}
 
-        <div className="row">
-          <label htmlFor="id_estado_mesa">Estado =</label>
-          <select
-            id="id_estado_mesa"
-            name="id_estado_mesa"
-            value={form.id_estado_mesa}
-            onChange={onChange}
-            required
-            disabled={bloqueada}
-          >
-            <option value="">-- Seleccioná --</option>
-            {estados.map(e => (
-              <option key={e.id_estado_mesa} value={e.id_estado_mesa}>{e.estms_nombre}</option>
-            ))}
-          </select>
-        </div>
-        {errors.id_estado_mesa && <small className="err">{errors.id_estado_mesa}</small>}
-
-        <div>
-          <button type="submit" className="btn btn-primary" disabled={bloqueada}>
-            Guardar cambios
-          </button>
-          <button type="button" className="btn btn-secondary" onClick={() => navigate("/mesas")} style={{marginLeft:10}}>
-            Volver
-          </button>
-        </div>
-      </form>
-
-      <style>{styles}</style>
+          <MesaEditarActions
+            navigate={navigate}
+            bloqueada={bloqueada}
+          />
+        </form>
+      </div>
     </DashboardLayout>
   );
 }
 
-const styles = `
-.form .row { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
-.form label { min-width:220px; text-align:right; color:#d1d5db; }
-.err { color:#fca5a5; font-size:12px; margin-top:-6px; display:block; }
-.btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
-.btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
-.btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
-`;
 
 
 

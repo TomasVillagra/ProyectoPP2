@@ -1,0 +1,104 @@
+/* Todo esto solo afecta a lo que esté dentro de .insumo-registrar-scope */
+.insumo-registrar-scope {
+  /* contenedor para poder añadir estilos generales si querés */
+}
+
+.insumo-registrar-scope .form-container {
+  background-color: #2c2c2e;
+  border: 1px solid #3a3a3c;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.insumo-registrar-scope .form-title {
+  margin: 0 0 24px 0;
+  font-size: 1.5rem;
+}
+
+.insumo-registrar-scope .form-message {
+  margin: 0 0 16px 0;
+  color: #facc15;
+}
+
+.insumo-registrar-scope .form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.insumo-registrar-scope .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.insumo-registrar-scope .form-group label {
+  font-weight: 600;
+  color: #d1d5db;
+}
+
+.insumo-registrar-scope .form-group input,
+.insumo-registrar-scope .form-group select {
+  background-color: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+  border-radius: 8px;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.insumo-registrar-scope .form-group input:focus,
+.insumo-registrar-scope .form-group select:focus {
+  border-color: #facc15;
+}
+
+.insumo-registrar-scope .form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.insumo-registrar-scope .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.2s ease;
+}
+
+.insumo-registrar-scope .btn-primary {
+  background-color: #facc15;
+  color: #111827;
+}
+
+.insumo-registrar-scope .btn-primary:hover {
+  background-color: #eab308;
+}
+
+.insumo-registrar-scope .btn-secondary {
+  background-color: #3a3a3c;
+  color: #eaeaea;
+}
+
+.insumo-registrar-scope .btn-secondary:hover {
+  background-color: #4a4a4e;
+}
+
+.insumo-registrar-scope .field-error {
+  color: #fca5a5;
+  font-size: 0.85rem;
+}
+
+.insumo-registrar-scope .hint {
+  color: #d4d4d8;
+  font-size: 0.8rem;
+}

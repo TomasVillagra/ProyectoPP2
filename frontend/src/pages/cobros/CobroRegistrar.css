@@ -1,0 +1,89 @@
+/* Todo scoped dentro de .cobro-registrar-scope */
+
+.cobro-registrar-scope .grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 1000px) {
+  .cobro-registrar-scope .grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.cobro-registrar-scope .card-dark {
+  background: #121212;
+  border: 1px solid #232323;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.cobro-registrar-scope .label {
+  color: #aaa;
+  font-size: 14px;
+}
+
+.cobro-registrar-scope .field {
+  margin-bottom: 10px;
+}
+
+.cobro-registrar-scope .input {
+  width: 100%;
+  background: #0f0f10;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.cobro-registrar-scope .badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.cobro-registrar-scope .badge.ok {
+  background: #14532d;
+  color: #a7f3d0;
+}
+
+.cobro-registrar-scope .badge.err {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.cobro-registrar-scope .btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.cobro-registrar-scope .btn-primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.cobro-registrar-scope .btn-secondary {
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+}
+
+.cobro-registrar-scope .alert-warn {
+  background: #7c2d12;
+  color: #fde68a;
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.cobro-registrar-scope .alert-info {
+  background: #1e3a8a;
+  color: #bfdbfe;
+  padding: 8px;
+  border-radius: 8px;
+}

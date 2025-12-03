@@ -1,0 +1,147 @@
+/* Scope general */
+.caja-historial-scope .caja-hist-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.caja-historial-scope .caja-hist-title {
+  margin: 0;
+  color: #fff;
+}
+
+.caja-historial-scope .caja-hist-error {
+  color: #facc15;
+  margin-top: 8px;
+}
+
+/* Botones */
+.caja-historial-scope .btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.caja-historial-scope .btn-sm {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.caja-historial-scope .btn-primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.caja-historial-scope .btn-secondary {
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+}
+
+/* Tabla */
+.caja-historial-scope .table-wrap {
+  margin-top: 20px;
+  overflow: auto;
+}
+
+.caja-historial-scope .table-dark {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 4px; /* más espacio entre filas */
+  background: transparent;
+  color: #eaeaea;
+}
+
+.caja-historial-scope .table-dark thead tr {
+  background: #18181b;
+}
+
+.caja-historial-scope .table-dark th,
+.caja-historial-scope .table-dark td {
+  padding: 10px 14px; /* más padding */
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.caja-historial-scope .table-dark th:first-child,
+.caja-historial-scope .table-dark td:first-child {
+  padding-left: 16px;
+}
+
+.caja-historial-scope .table-dark th:last-child,
+.caja-historial-scope .table-dark td:last-child {
+  padding-right: 16px;
+}
+
+.caja-historial-scope .table-dark tbody tr {
+  background: #121212;
+  border-radius: 10px;
+}
+
+.caja-historial-scope .table-dark tbody tr:hover {
+  background: #1f2933;
+}
+
+.caja-historial-scope .table-dark tbody tr td {
+  border-top: 1px solid #232323;
+  border-bottom: 1px solid #232323;
+}
+
+.caja-historial-scope .table-dark tbody tr td:first-child {
+  border-left: 1px solid #232323;
+  border-top-left-radius: 10px;
+  border-bottom-left-radius: 10px;
+}
+
+.caja-historial-scope .table-dark tbody tr td:last-child {
+  border-right: 1px solid #232323;
+  border-top-right-radius: 10px;
+  border-bottom-right-radius: 10px;
+}
+
+.caja-historial-scope .table-dark th {
+  text-align: left;
+}
+
+.caja-historial-scope .res-num {
+  font-weight: 600;
+}
+
+.caja-historial-scope .res-num.ok {
+  color: #22c55e;
+}
+
+.caja-historial-scope .res-num.err {
+  color: #f97316;
+}
+
+/* Paginación */
+.caja-historial-scope .pagination-wrap {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.caja-historial-scope .pagination-info {
+  font-size: 13px;
+  color: #d4d4d8;
+}
+
+.caja-historial-scope .pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.caja-historial-scope .pagination-page {
+  font-size: 13px;
+  color: #e4e4e7;
+}

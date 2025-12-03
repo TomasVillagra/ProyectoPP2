@@ -1,0 +1,65 @@
+/* Todo scoped dentro de compra-registrar-scope */
+
+.compra-registrar-scope .form .row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.compra-registrar-scope .form label {
+  min-width: 220px;
+  text-align: right;
+  color: #d1d5db;
+}
+
+.compra-registrar-scope textarea,
+.compra-registrar-scope input,
+.compra-registrar-scope select {
+  width: 100%;
+  background: #0f0f0f;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.compra-registrar-scope .table-wrap {
+  overflow: auto;
+  margin-top: 6px;
+}
+
+.compra-registrar-scope .table-dark {
+  width: 100%;
+  border-collapse: collapse;
+  background: #121212;
+  color: #eaeaea;
+}
+
+.compra-registrar-scope .table-dark th,
+.compra-registrar-scope .table-dark td {
+  border: 1px solid #232323;
+  padding: 10px;
+  vertical-align: top;
+}
+
+.compra-registrar-scope .btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.compra-registrar-scope .btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.compra-registrar-scope .btn-secondary {
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+}

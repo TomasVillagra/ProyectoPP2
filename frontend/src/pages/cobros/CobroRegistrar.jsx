@@ -1,7 +1,24 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+} from "react";
+import {
+  useParams,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import apiDefault, { api as apiNamed } from "../../api/axios";
+
+import CobroRegistrarResumen from "../../components/cobros/CobroRegistrarResumen";
+import CobroRegistrarForm from "../../components/cobros/CobroRegistrarForm";
+import CobroRegistrarEmpty from "../../components/cobros/CobroRegistrarEmpty";
+
+// ✅ CSS local, no global
+import "./CobroRegistrar.css";
+
 const api = apiNamed || apiDefault;
 
 // Helper simple ARS
@@ -80,7 +97,9 @@ export default function CobroRegistrar() {
             dataDoc = ventaRes.data;
           } catch {
             try {
-              const compraRes = await api.get(`/api/compras/${id_venta}/`);
+              const compraRes = await api.get(
+                `/api/compras/${id_venta}/`
+              );
               tipoDetectado = "compra";
               dataDoc = compraRes.data;
             } catch (err2) {
@@ -88,7 +107,9 @@ export default function CobroRegistrar() {
                 "No se encontró venta ni compra con ese ID:",
                 err2
               );
-              alert(`No se encontró venta ni compra con ID #${id_venta}.`);
+              alert(
+                `No se encontró venta ni compra con ID #${id_venta}.`
+              );
               if (mounted) setLoading(false);
               return;
             }
@@ -152,7 +173,8 @@ export default function CobroRegistrar() {
   // ================== MEMOS BÁSICOS ==================
   const cajaAbierta = useMemo(() => {
     if (!cajaEstado) return false;
-    if (typeof cajaEstado.abierta === "boolean") return cajaEstado.abierta;
+    if (typeof cajaEstado.abierta === "boolean")
+      return cajaEstado.abierta;
     if (typeof cajaEstado.estado === "string")
       return cajaEstado.estado.toUpperCase() === "ABIERTA";
     return false;
@@ -170,7 +192,7 @@ export default function CobroRegistrar() {
     return Number.isNaN(v) ? null : v;
   }, [cajaEstado]);
 
-  // EFECTIVO disponible real: apertura + ingresos efectivo - egresos efectivo (desde la apertura actual)
+  // EFECTIVO disponible real
   const efectivoDisponible = useMemo(() => {
     if (!cajaEstado) return null;
 
@@ -178,7 +200,7 @@ export default function CobroRegistrar() {
       cajaEstado.efectivo_disponible ??
         cajaEstado.efectivoDisponible ??
         cajaEstado.efectivo ??
-        saldoCaja // fallback al saldo total si por alguna razón no viene el campo nuevo
+        saldoCaja
     );
     return Number.isNaN(v) ? null : v;
   }, [cajaEstado, saldoCaja]);
@@ -189,7 +211,12 @@ export default function CobroRegistrar() {
       return registro.com_monto ?? 0;
     }
     // venta
-    return registro.ven_monto ?? registro.ven_total ?? registro.total ?? 0;
+    return (
+      registro.ven_monto ??
+      registro.ven_total ??
+      registro.total ??
+      0
+    );
   }, [registro, tipoDoc]);
 
   const estadoNombre = useMemo(() => {
@@ -263,7 +290,10 @@ export default function CobroRegistrar() {
         String(registro?.id_metodo_pago || "")
     );
     return (
-      found?.metpag_nombre || found?.metpago_nombre || found?.nombre || ""
+      found?.metpag_nombre ||
+      found?.metpago_nombre ||
+      found?.nombre ||
+      ""
     );
   }, [registro, metodosPago]);
 
@@ -271,7 +301,8 @@ export default function CobroRegistrar() {
   const metodoPagoSel = useMemo(() => {
     if (!idMetodoPago) return null;
     return metodosPago.find(
-      (m) => String(m.id_metodo_pago || m.id) === String(idMetodoPago)
+      (m) =>
+        String(m.id_metodo_pago || m.id) === String(idMetodoPago)
     );
   }, [metodosPago, idMetodoPago]);
 
@@ -283,7 +314,9 @@ export default function CobroRegistrar() {
         metodoPagoSel.nombre ||
         ""
     );
-    const codigo = clean(metodoPagoSel.codigo || metodoPagoSel.code || "");
+    const codigo = clean(
+      metodoPagoSel.codigo || metodoPagoSel.code || ""
+    );
     return (
       nombre.includes("efectivo") ||
       codigo.includes("efectivo") ||
@@ -294,7 +327,11 @@ export default function CobroRegistrar() {
   // Busca el id_estado_venta para "Cobrado/Cobrada/Pagado/Pagada" (sólo ventas)
   const resolveEstadoVentaId = useCallback(
     (targetNames = []) => {
-      if (!Array.isArray(estadosVenta) || estadosVenta.length === 0) return null;
+      if (
+        !Array.isArray(estadosVenta) ||
+        estadosVenta.length === 0
+      )
+        return null;
       const targets = targetNames.map(clean);
       for (const it of estadosVenta) {
         const nombre =
@@ -315,7 +352,9 @@ export default function CobroRegistrar() {
       return;
     }
     if (!cajaAbierta) {
-      alert("La caja está cerrada. Abrila antes de registrar el movimiento.");
+      alert(
+        "La caja está cerrada. Abrila antes de registrar el movimiento."
+      );
       return;
     }
     if (!idMetodoPago) {
@@ -327,13 +366,14 @@ export default function CobroRegistrar() {
     if (tipoDoc === "venta") {
       const n = clean(estadoNombre);
       if (n.includes("cobrad") || n.includes("pagad")) {
-        alert("Esta venta ya está cobrada/pagada, no se puede volver a cobrar.");
+        alert(
+          "Esta venta ya está cobrada/pagada, no se puede volver a cobrar."
+        );
         return;
       }
     }
 
     // Si es COMPRA y método EFECTIVO, no dejar egresar más que el EFECTIVO disponible
-    // (monto apertura + ingresos efectivo - egresos efectivo desde la apertura actual)
     if (
       tipoDoc === "compra" &&
       esEfectivoSeleccionado &&
@@ -362,7 +402,8 @@ export default function CobroRegistrar() {
           id_tipo_movimiento_caja: 2, // Ingreso
           mv_monto: Number(montoDocumento),
           mv_descripcion:
-            observacion?.trim() || `Cobro de venta #${registro.id_venta || id_venta}`,
+            observacion?.trim() ||
+            `Cobro de venta #${registro.id_venta || id_venta}`,
           id_metodo_pago: Number(idMetodoPago),
           id_venta: idNum,
         });
@@ -393,7 +434,8 @@ export default function CobroRegistrar() {
           id_tipo_movimiento_caja: 3, // Egreso
           mv_monto: Number(montoDocumento),
           mv_descripcion:
-            observacion?.trim() || `Pago de compra #${registro.id_compra || id_venta}`,
+            observacion?.trim() ||
+            `Pago de compra #${registro.id_compra || id_venta}`,
           id_metodo_pago: Number(idMetodoPago),
           id_compra: idNum,
         });
@@ -428,7 +470,7 @@ export default function CobroRegistrar() {
     resolveEstadoVentaId,
     estadoNombre,
     esEfectivoSeleccionado,
-    efectivoDisponible, // ← antes estaba saldoCaja
+    efectivoDisponible,
   ]);
 
   // ================== RENDER ==================
@@ -440,156 +482,48 @@ export default function CobroRegistrar() {
 
   return (
     <DashboardLayout>
-      {loading ? (
-        <p>Cargando datos de cobro/pago...</p>
-      ) : !registro ? (
-        <div className="card-dark">
-          <h3 style={{ marginTop: 0 }}>Cobrar / Pagar</h3>
-          <div className="alert-warn">
-            No se encontró la venta/compra #{id_venta}.
+      {/* ✅ Scope para que el CSS no sea global */}
+      <div className="cobro-registrar-scope">
+        {loading ? (
+          <p>Cargando datos de cobro/pago...</p>
+        ) : !registro ? (
+          <CobroRegistrarEmpty id_venta={id_venta} />
+        ) : (
+          <div className="grid">
+            <CobroRegistrarResumen
+              tituloDoc={tituloDoc}
+              idMostrar={idMostrar}
+              estadoNombre={estadoNombre}
+              montoDocumento={montoDocumento}
+              metodoPagoActual={metodoPagoActual}
+              cajaAbierta={cajaAbierta}
+              tipoDoc={tipoDoc}
+              esEfectivoSeleccionado={esEfectivoSeleccionado}
+              efectivoDisponible={efectivoDisponible}
+              fmtARS={fmtARS}
+            />
+
+            <CobroRegistrarForm
+              tipoDoc={tipoDoc}
+              idMostrar={idMostrar}
+              metodosPago={metodosPago}
+              idMetodoPago={idMetodoPago}
+              setIdMetodoPago={setIdMetodoPago}
+              observacion={observacion}
+              setObservacion={setObservacion}
+              montoDocumento={montoDocumento}
+              fmtARS={fmtARS}
+              handleCobrar={handleCobrar}
+              submitting={submitting}
+              cajaAbierta={cajaAbierta}
+            />
           </div>
-          <Link to="/ventas" className="btn btn-secondary">
-            Volver a Ventas
-          </Link>
-        </div>
-      ) : (
-        <div className="grid">
-          <div className="card-dark">
-            <h3 style={{ marginTop: 0 }}>
-              Resumen de la {tituloDoc} #{idMostrar}
-            </h3>
-            <div className="row">
-              <div>
-                <span className="label">Estado:</span>{" "}
-                <b>{estadoNombre || "-"}</b>
-              </div>
-              <div>
-                <span className="label">Total:</span>{" "}
-                <b>{fmtARS(montoDocumento)}</b>
-              </div>
-              <div>
-                <span className="label">Método actual:</span>{" "}
-                <b>{metodoPagoActual || "— (sin asignar)"} </b>
-              </div>
-              <div>
-                <span className="label">Caja:</span>{" "}
-                <span className={`badge ${cajaAbierta ? "ok" : "err"}`}>
-                  {cajaAbierta ? "Abierta" : "Cerrada"}
-                </span>
-              </div>
-              {tipoDoc === "compra" &&
-                esEfectivoSeleccionado &&
-                efectivoDisponible != null && (
-                  <div>
-                    <span className="label">Efectivo disponible:</span>{" "}
-                    <b>{fmtARS(efectivoDisponible)}</b>
-                  </div>
-                )}
-            </div>
-            {!cajaAbierta && (
-              <div className="alert-info" style={{ marginTop: 10 }}>
-                Para registrar el movimiento necesitás abrir la caja en{" "}
-                <b>Caja &gt; Panel</b>.
-              </div>
-            )}
-          </div>
-
-          <div className="card-dark">
-            <h3 style={{ marginTop: 0 }}>
-              {tipoDoc === "compra"
-                ? "Registrar pago de compra"
-                : "Registrar cobro de venta"}
-            </h3>
-
-            <div className="field">
-              <label className="label">Método de pago</label>
-              <select
-                className="input"
-                value={idMetodoPago}
-                onChange={(e) => setIdMetodoPago(e.target.value)}
-              >
-                <option value="">Seleccionar...</option>
-                {metodosPago.map((m) => (
-                  <option
-                    key={m.id_metodo_pago || m.id}
-                    value={m.id_metodo_pago || m.id}
-                  >
-                    {m.metpag_nombre || m.metpago_nombre || m.nombre}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="field">
-              <label className="label">Observación (opcional)</label>
-              <textarea
-                className="input"
-                rows={3}
-                placeholder={
-                  tipoDoc === "compra"
-                    ? `Pago de compra #${idMostrar}`
-                    : `Cobro de venta #${idMostrar}`
-                }
-                value={observacion}
-                onChange={(e) => setObservacion(e.target.value)}
-              />
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <div className="label">
-                Importe: <b>{fmtARS(montoDocumento)}</b>
-              </div>
-              <button
-                className="btn btn-primary"
-                onClick={handleCobrar}
-                disabled={submitting || !cajaAbierta || !idMetodoPago}
-                title={
-                  !cajaAbierta
-                    ? "Abrí la caja para poder registrar el movimiento."
-                    : !idMetodoPago
-                    ? "Elegí un método de pago."
-                    : undefined
-                }
-              >
-                {submitting
-                  ? tipoDoc === "compra"
-                    ? "Pagando..."
-                    : "Cobrando..."
-                  : tipoDoc === "compra"
-                  ? "Registrar pago"
-                  : "Cobrar"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      <style>{styles}</style>
+        )}
+      </div>
     </DashboardLayout>
   );
 }
 
-const styles = `
-.grid { display:grid; gap:12px; grid-template-columns: 1fr; }
-@media (min-width: 1000px) { .grid { grid-template-columns: 1fr 1fr; } }
-.card-dark { background:#121212; border:1px solid #232323; border-radius:10px; padding:12px; }
-.label { color:#aaa; font-size:14px; }
-.field { margin-bottom:10px; }
-.input { width:100%; background:#0f0f10; color:#fff; border:1px solid #2a2a2a; border-radius:8px; padding:8px; }
-.badge { display:inline-block; padding:4px 8px; border-radius:999px; font-weight:700; }
-.badge.ok { background:#14532d; color:#a7f3d0; }
-.badge.err { background:#7f1d1d; color:#fecaca; }
-.btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
-.btn-primary { background:#2563eb; color:#fff; }
-.btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
-.alert-warn { background:#7c2d12; color:#fde68a; padding:8px; border-radius:8px; }
-.alert-info { background:#1e3a8a; color:#bfdbfe; padding:8px; border-radius:8px; }
-`;
 
 
 

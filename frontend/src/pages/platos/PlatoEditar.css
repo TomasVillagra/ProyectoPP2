@@ -1,0 +1,71 @@
+.plato-edit-header h2 {
+  margin: 0 0 12px 0;
+  color: #fff;
+}
+
+.plato-edit-msg {
+  color: #facc15;
+  margin-bottom: 12px;
+}
+
+.plato-edit-form {
+  max-width: 900px;
+}
+
+.plato-edit-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.plato-edit-row label {
+  min-width: 220px;
+  color: #e5e7eb;
+  text-align: right;
+}
+
+.plato-edit-row input,
+.plato-edit-row select {
+  flex: 1;
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.plato-edit-err {
+  color: #fca5a5;
+  font-size: 12px;
+  margin-left: 232px;
+  margin-top: -6px;
+  display: block;
+}
+
+.plato-edit-buttons {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+}
+
+.plato-edit-btn-primary,
+.plato-edit-btn-secondary {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.plato-edit-btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.plato-edit-btn-secondary {
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+}

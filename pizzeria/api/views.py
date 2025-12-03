@@ -386,13 +386,14 @@ class PedidoViewSet(RoleProtectedViewSet):
         Valida stock para la EDICIÓN de un pedido.
 
         - Recibe los 'detalles' que querés guardar.
-        - Usa detped_cantidad (cantidad nueva) y _min_cant (cantidad original)
-          para calcular SOLO el incremento (cantidad nueva - original).
+        - Para pedidos EN PROCESO / PENDIENTES, valida como si fuera un pedido nuevo:
+          reserva completa con las NUEVAS cantidades.
+        - Para pedidos ya ENTREGADOS:
+          usa detped_cantidad (cantidad nueva) y _min_cant (cantidad original)
+          para calcular SOLO el incremento (cantidad nueva - original) y
+          valida / descuenta stock solo por ese incremento.
         - Suma reservas de TODOS los pedidos EN PROCESO, EXCEPTO este mismo.
-        - Suma insumos necesarios SOLO por el incremento.
         - Si no alcanza stock de algún insumo -> 400 con mensaje corto.
-        - Si el pedido YA está ENTREGADO, además DESCUENTA del stock
-          solo el incremento (platos + insumos).
         """
         asegurar_caja_abierta()
         from decimal import Decimal
@@ -403,6 +404,10 @@ class PedidoViewSet(RoleProtectedViewSet):
 
         if not detalles:
             return Response({"detail": "El pedido no contiene ítems."}, status=400)
+
+        # Pedido actual (para saber su estado)
+        pedido = self.get_object()
+        es_entregado = pedido.id_estado_pedido_id == ESTADO_PEDIDO["ENTREGADO"]
 
         # { id_insumo: {"nombre":..., "unidad":..., "total": Decimal} }
         requeridos = {}
@@ -457,9 +462,10 @@ class PedidoViewSet(RoleProtectedViewSet):
                     })
                     entry["total"] += total_necesario
 
-        # 1) Insumos necesarios para el pedido EDITADO (solo el INCREMENTO)
-        #    y de paso guardamos la info de incrementos para luego descontar
-        incrementos = []  # lista de dicts por detalle
+        # 1) Insumos necesarios para el pedido EDITADO
+        #    - Si el pedido está ENTREGADO: solo el INCREMENTO
+        #    - Si NO está ENTREGADO: se valida la NUEVA cantidad completa (como en create)
+        incrementos = []  # solo se usan si el pedido está ENTREGADO
 
         for det in detalles:
             plato_id = det.get("id_plato")
@@ -475,13 +481,6 @@ class PedidoViewSet(RoleProtectedViewSet):
             if cantidad_original < 0:
                 cantidad_original = Decimal("0")
 
-            # Solo nos importa el incremento (lo nuevo que agregás)
-            incremento = cantidad_total - cantidad_original
-
-            # Si no estás aumentando (bajás o dejás igual), no consume stock extra
-            if incremento <= 0:
-                continue
-
             plato = Platos.objects.filter(pk=plato_id).first()
             if not plato:
                 return Response(
@@ -489,24 +488,39 @@ class PedidoViewSet(RoleProtectedViewSet):
                     status=400
                 )
 
-            # Stock del plato: primero usamos lo que ya hay preparado
-            stock_plato = Decimal(str(plato.plt_stock or 0))
-            desde_stock = min(stock_plato, incremento)
-            faltante = incremento - desde_stock
+            if es_entregado:
+                # 🔹 Pedido ya ENTREGADO:
+                #    solo nos importa el incremento (lo nuevo que agregás)
+                incremento = cantidad_total - cantidad_original
+                if incremento <= 0:
+                    # Si bajás o dejás igual, no necesitás stock extra
+                    continue
 
-            # Guardamos para posible descuento luego
-            incrementos.append({
-                "plato": plato,
-                "incremento": incremento,
-                "desde_stock": desde_stock,
-                "faltante": faltante,
-            })
+                stock_plato = Decimal(str(plato.plt_stock or 0))
+                desde_stock = min(stock_plato, incremento)
+                faltante = incremento - desde_stock
 
-            # Si NO falta (todo el incremento sale de stock del plato), no se necesitan insumos
+                # Guardamos para luego descontar stock REAL por este incremento
+                incrementos.append({
+                    "plato": plato,
+                    "incremento": incremento,
+                    "desde_stock": desde_stock,
+                    "faltante": faltante,
+                })
+
+            else:
+                # 🔹 Pedido EN PROCESO / PENDIENTE:
+                #    se valida como si fuera un pedido nuevo:
+                #    reservamos la cantidad TOTAL nueva (no solo el incremento)
+                incremento = cantidad_total - cantidad_original  # solo informativo
+                stock_plato = Decimal(str(plato.plt_stock or 0))
+                desde_stock = min(stock_plato, cantidad_total)
+                faltante = cantidad_total - desde_stock
+
+            # Si NO falta (todo sale de stock del plato), no se necesitan insumos
             if faltante <= 0:
                 continue
 
-            # Si falta → se produciría usando RECETA => consume insumos
             # Si falta → se produciría usando RECETA => consume insumos
             receta = Recetas.objects.filter(id_plato=plato).first()
             if not receta:
@@ -514,7 +528,7 @@ class PedidoViewSet(RoleProtectedViewSet):
                     {
                         "detail": (
                             f"El plato '{plato.plt_nombre}' no tiene receta para "
-                            f"producir {faltante} unidad(es) extra."
+                            f"producir {faltante} unidad(es)."
                         )
                     },
                     status=400
@@ -556,8 +570,7 @@ class PedidoViewSet(RoleProtectedViewSet):
                 })
                 entry["total"] += total_necesario
 
-
-        # 2) VALIDAR STOCK DE INSUMOS (reservas + incremento del pedido)
+        # 2) VALIDAR STOCK DE INSUMOS (reservas + este pedido)
         if requeridos:
             ids = list(requeridos.keys())
             for ins in Insumos.objects.filter(pk__in=ids):
@@ -578,17 +591,15 @@ class PedidoViewSet(RoleProtectedViewSet):
 
                     return Response({"detail": msg_corto}, status=400)
 
-        # 3) Si el pedido está ENTREGADO -> descontar stock por el INCREMENTO
-        pedido = self.get_object()
-        if pedido.id_estado_pedido_id == ESTADO_PEDIDO["ENTREGADO"] and incrementos:
+        # 3) Si el pedido está ENTREGADO -> descontar stock REAL por el INCREMENTO
+        if es_entregado and incrementos:
             with transaction.atomic():
-                # 3.1) Descontar primero de stock de plato
                 for item in incrementos:
                     plato = item["plato"]
                     desde_stock = item["desde_stock"]
                     faltante = item["faltante"]
 
-                    # Descontar del stock del plato la parte que sale directamente del stock
+                    # 3.1) Descontar del stock del plato la parte que sale directamente del stock
                     if desde_stock > 0:
                         Platos.objects.filter(pk=plato.pk).update(
                             plt_stock=F("plt_stock") - desde_stock
@@ -598,7 +609,6 @@ class PedidoViewSet(RoleProtectedViewSet):
                     if faltante > 0:
                         receta = Recetas.objects.filter(id_plato=plato).first()
                         if not receta:
-                            # En teoría no debería pasar porque ya se validó arriba
                             return Response(
                                 {
                                     "detail": (
@@ -634,6 +644,7 @@ class PedidoViewSet(RoleProtectedViewSet):
 
         # Si llega acá, el stock alcanza
         return Response({"ok": True}, status=200)
+
 
 
     # (acá siguen tus métodos existentes: descontar_insumos, generar_venta,

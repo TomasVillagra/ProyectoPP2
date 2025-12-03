@@ -1,0 +1,209 @@
+/* Header */
+.platos-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.platos-header h2 {
+  margin: 0;
+  color: #fff;
+}
+
+.platos-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Botones */
+.platos-btn-primary,
+.platos-btn-secondary,
+.platos-btn-danger,
+.platos-btn-sm {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.platos-btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.platos-btn-secondary {
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+}
+
+.platos-btn-danger {
+  background: #ef4444;
+  color: #fff;
+  border-color: #ef4444;
+}
+
+.platos-btn-sm {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* Mensaje */
+.platos-msg {
+  color: #facc15;
+  margin-bottom: 8px;
+}
+
+/* Filtros */
+.platos-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+.platos-filters input,
+.platos-filters select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #0f0f0f;
+  color: #fff;
+}
+
+/* Tabla */
+.platos-table-wrap {
+  overflow: auto;
+  margin-top: 8px;
+}
+
+.platos-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #121212;
+  color: #eaeaea;
+}
+
+.platos-table th,
+.platos-table td {
+  border: 1px solid #232323;
+  padding: 10px;
+}
+
+.platos-empty {
+  text-align: center;
+  padding: 14px;
+}
+
+.platos-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Paginación */
+.platos-pagination-wrap {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.platos-pagination-info {
+  font-size: 13px;
+  color: #d4d4d8;
+}
+
+.platos-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.platos-pagination-page {
+  font-size: 13px;
+  color: #e4e4e7;
+}
+
+/* Modales */
+.platos-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 16px;
+}
+
+.platos-modal-card {
+  background: #1a1a1a;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 18px;
+  max-width: 520px;
+  width: 100%;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.platos-modal-title {
+  margin-top: 0;
+  margin-bottom: 6px;
+}
+
+.platos-modal-text {
+  margin: 6px 0 12px;
+  color: #d1d5db;
+}
+
+.platos-modal-body {
+  display: grid;
+  gap: 8px;
+}
+
+.platos-modal-line {
+  color: #eaeaea;
+}
+
+.platos-modal-input {
+  width: 100%;
+  background: #0f0f0f;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.platos-modal-warn {
+  background: #3a3a3c;
+  color: #facc15;
+  border: 1px solid #4a4a4e;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-top: 10px;
+  white-space: pre-wrap;
+}
+
+.platos-modal-error {
+  margin-top: 8px;
+  color: #fca5a5;
+  font-size: 0.9rem;
+}
+
+.platos-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+

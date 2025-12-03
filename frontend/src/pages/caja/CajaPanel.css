@@ -1,0 +1,209 @@
+/* Scope general */
+.caja-panel-scope .caja-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.caja-panel-scope .caja-panel-title {
+  margin: 0;
+  color: #fff;
+}
+
+.caja-panel-scope .caja-panel-msg {
+  color: #facc15;
+  white-space: pre-wrap;
+}
+
+/* Cards */
+.caja-panel-scope .card-dark {
+  background: #121212;
+  border: 1px solid #232323;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.caja-panel-scope .card-row {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.caja-panel-scope .label {
+  color: #aaa;
+  font-size: 14px;
+}
+
+.caja-panel-scope .badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.caja-panel-scope .badge.ok {
+  background: #14532d;
+  color: #a7f3d0;
+}
+
+.caja-panel-scope .badge.err {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.caja-panel-scope .caja-panel-card-title {
+  margin-bottom: 8px;
+}
+
+.caja-panel-scope .caja-panel-card-abrir {
+  margin-top: 12px;
+}
+
+.caja-panel-scope .caja-panel-abrir-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.caja-panel-scope .caja-panel-card-abierta {
+  margin-top: 12px;
+}
+
+.caja-panel-scope .caja-panel-apertura-row {
+  margin-top: 8px;
+}
+
+.caja-panel-scope .caja-panel-efectivo {
+  font-weight: 600;
+  color: #22c55e;
+}
+
+.caja-panel-scope .caja-panel-efectivo[data-positive="false"] {
+  color: #f97316;
+}
+
+.caja-panel-scope .caja-panel-cerrar-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.caja-panel-scope .caja-panel-movs-card {
+  margin-top: 12px;
+}
+
+/* Inputs y botones */
+.caja-panel-scope .input {
+  background: #0f0f10;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 8px;
+  max-width: 180px;
+}
+
+.caja-panel-scope .btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.caja-panel-scope .btn-primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.caja-panel-scope .btn-secondary {
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+}
+
+/* Tabla movimientos */
+.caja-panel-scope .table-wrap {
+  overflow: auto;
+  margin-top: 8px;
+}
+
+.caja-panel-scope .table-dark {
+  width: 100%;
+  border-collapse: collapse;
+  background: #121212;
+  color: #eaeaea;
+}
+
+.caja-panel-scope .table-dark th,
+.caja-panel-scope .table-dark td {
+  border: 1px solid #232323;
+  padding: 10px;
+  vertical-align: top;
+}
+
+/* Paginación */
+.caja-panel-scope .caja-panel-paginate {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.caja-panel-scope .caja-panel-page-label {
+  cursor: default;
+}
+
+
+
+/* Fila de confirmación apertura/cierre */
+.caja-panel-scope .caja-panel-confirm-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.caja-panel-scope .caja-panel-confirm-text {
+  color: #e5e5e5;
+  font-size: 14px;
+}
+
+/* Card del gráfico de ventas del día en CajaPanel */
+.caja-panel-scope .caja-panel-ventas-card {
+  margin-top: 12px;
+}
+
+
+
+
+/* Fila de confirmación apertura/cierre */
+.caja-panel-scope .caja-panel-confirm-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.caja-panel-scope .caja-panel-confirm-text {
+  color: #e5e5e5;
+  font-size: 14px;
+}
+
+/* Contenedor de los gráficos (torta + weekly) */
+.caja-panel-scope .caja-panel-ventas-row {
+  margin-top: 12px;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Cada card de gráfico */
+.caja-panel-scope .caja-panel-ventas-card {
+  flex: 1 1 320px;
+}

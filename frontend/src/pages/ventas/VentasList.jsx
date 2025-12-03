@@ -1,7 +1,14 @@
-import { useEffect, useState } from "react";
+// src/pages/ventas/VentasList.jsx
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
-import { Link } from "react-router-dom";
+
+import VentasHeader from "../../components/ventas/VentasHeader";
+import VentasFilters from "../../components/ventas/VentasFilters";
+import VentasTable from "../../components/ventas/VentasTable";
+import VentasPagination from "../../components/ventas/VentasPagination";
+
+import "./VentasList.css";
 
 function normAny(resp) {
   if (!resp) return [];
@@ -34,7 +41,12 @@ export default function VentasList() {
   const [estadosVenta, setEstadosVenta] = useState([]);
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(true);
-  const [downloadingId, setDownloadingId] = useState(null); // id de venta que está generando comprobante
+  const [downloadingId, setDownloadingId] = useState(null);
+
+  // filtros + paginación
+  const [fEstado, setFEstado] = useState(""); // "" | "pendiente" | "cobrado"
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const fetchEstadosVenta = async () => {
     const candidates = [
@@ -75,18 +87,15 @@ export default function VentasList() {
     })();
   }, []);
 
-  // Obtiene el NOMBRE del estado de la venta (nunca el id numérico)
   const getEstadoNombre = (venta) => {
     if (!venta) return "-";
 
-    // Si el backend ya manda nombre, lo usamos
     let nombre =
       venta.estado_nombre ??
       venta.estven_nombre ??
       venta.estado ??
       "";
 
-    // Si id_estado_venta viene como objeto
     if (!nombre && typeof venta.id_estado_venta === "object" && venta.id_estado_venta !== null) {
       nombre =
         venta.id_estado_venta.estven_nombre ??
@@ -94,7 +103,6 @@ export default function VentasList() {
         "";
     }
 
-    // Si todavía no tenemos nombre, lo buscamos en el catálogo por id
     if (!nombre && venta.id_estado_venta != null && estadosVenta.length > 0) {
       const idValor =
         typeof venta.id_estado_venta === "object"
@@ -117,23 +125,18 @@ export default function VentasList() {
     return nombre || "-";
   };
 
-  // Devuelve true si la venta ya está cobrada/pagada
   const esVentaCobrada = (venta) => {
-    const nombre = getEstadoNombre(venta);
-    const n = clean(nombre);
-    // cubrimos variantes: Cobrado, Cobrada, Pagado, Pagada
+    const n = clean(getEstadoNombre(venta));
     if (n.includes("cobrad")) return true;
     if (n.includes("pagad")) return true;
     return false;
   };
 
-  // 🔹 Generar/descargar comprobante PDF (no válido como factura)
   const handleComprobante = async (ventaId) => {
     try {
       setMsg("");
       setDownloadingId(ventaId);
 
-      // Ajustá esta URL al endpoint que crees en Django para generar el PDF
       const url = `/api/ventas/${ventaId}/comprobante-pdf/`;
 
       const res = await api.get(url, { responseType: "blob" });
@@ -155,135 +158,69 @@ export default function VentasList() {
     }
   };
 
+  // FILTRADO por estado
+  const filtradas = useMemo(() => {
+    return ventas.filter((v) => {
+      if (fEstado === "pendiente") return !esVentaCobrada(v);
+      if (fEstado === "cobrado") return esVentaCobrada(v);
+      return true;
+    });
+  }, [ventas, fEstado, esVentaCobrada]);
+
+  // RESET de página cuando cambia el filtro o tamaño
+  useEffect(() => {
+    setPage(1);
+  }, [fEstado, pageSize]);
+
+  // PAGINACIÓN
+  const totalRows = filtradas.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const pageSafe = Math.min(page, totalPages);
+
+  const paginadas = useMemo(
+    () =>
+      filtradas.slice((pageSafe - 1) * pageSize, pageSafe * pageSize),
+    [filtradas, pageSafe, pageSize]
+  );
+
   return (
     <DashboardLayout>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 12,
-        }}
-      >
-        <h2 style={{ margin: 0, color: "#fff" }}>Ventas</h2>
-        {/* Si querés agregar "Registrar venta" manual, poné un Link acá */}
-      </div>
+      <VentasHeader />
 
-      {msg && (
-        <p style={{ color: "#facc15", whiteSpace: "pre-wrap" }}>{msg}</p>
-      )}
+      <VentasFilters
+        fEstado={fEstado}
+        setFEstado={setFEstado}
+        pageSize={pageSize}
+        setPageSize={setPageSize}
+      />
+
+      {msg && <p className="msg">{msg}</p>}
+
       {loading ? (
         <p>Cargando...</p>
       ) : (
-        <div className="table-wrap">
-          <table className="table-dark">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Fecha/Hora</th>
-                <th>Cliente</th>
-                <th>Empleado</th>
-                <th>Total</th>
-                <th>Estado</th>
-                <th style={{ width: 260 }}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ventas.length === 0 && (
-                <tr>
-                  <td colSpan="7" style={{ textAlign: "center" }}>
-                    Sin registros
-                  </td>
-                </tr>
-              )}
-              {ventas.map((v, i) => {
-                const id = v.id_venta ?? v.id ?? i;
-                const fecha = v.ven_fecha_hora ?? v.fecha ?? v.created_at ?? null;
-                const cliente =
-                  v.cliente_nombre ?? v.cli_nombre ?? v.id_cliente ?? "-";
-                const empleado =
-                  v.empleado_nombre ?? v.emp_nombre ?? v.id_empleado ?? "-";
+        <>
+          <VentasTable
+            rows={paginadas}
+            fmtDate={fmtDate}
+            money={money}
+            getEstadoNombre={getEstadoNombre}
+            esVentaCobrada={esVentaCobrada}
+            handleComprobante={handleComprobante}
+            downloadingId={downloadingId}
+          />
 
-                // mismo campo que en VentaDetalle (ven_monto / monto)
-                const total = Number(
-                  v.ven_total ??
-                  v.total ??
-                  v.ven_monto ??
-                  v.monto ??
-                  0
-                );
-
-                const estadoNombre = getEstadoNombre(v); // ← siempre nombre (Pendiente, Cobrado, etc.)
-                const yaCobrada = esVentaCobrada(v);
-
-                return (
-                  <tr key={id}>
-                    <td>{id}</td>
-                    <td>{fmtDate(fecha)}</td>
-                    <td>{String(cliente)}</td>
-                    <td>{String(empleado)}</td>
-                    <td>${money(total)}</td>
-                    <td>{estadoNombre}</td>
-                    <td
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      {/* Ver detalle de venta */}
-                      <Link
-                        to={`/ventas/${id}`}
-                        className="btn btn-secondary"
-                      >
-                        Ver
-                      </Link>
-
-                      {/* Cobrar venta: SOLO si no está cobrada/pagada */}
-                      {!yaCobrada && (
-                        <Link
-                          className="btn btn-primary"
-                          to={`/cobros/${v.id_venta ?? id}`}
-                        >
-                          Cobrar
-                        </Link>
-                      )}
-
-                      {/* Comprobante PDF: SOLO si está cobrada/pagada */}
-                      {yaCobrada && (
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          onClick={() => handleComprobante(v.id_venta ?? id)}
-                          disabled={downloadingId === (v.id_venta ?? id)}
-                        >
-                          {downloadingId === (v.id_venta ?? id)
-                            ? "Generando..."
-                            : "Comprobante"}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+          <VentasPagination
+            pageSafe={pageSafe}
+            totalPages={totalPages}
+            setPage={setPage}
+          />
+        </>
       )}
-
-      <style>{styles}</style>
     </DashboardLayout>
   );
 }
 
-const styles = `
-.table-wrap { overflow:auto; }
-.table-dark { width:100%; border-collapse: collapse; background:#121212; color:#eaeaea; }
-.table-dark th, .table-dark td { border:1px solid #232323; padding:10px; vertical-align:top; }
-.btn { padding:8px 12px; border-radius:8px; border:1px solid transparent; cursor:pointer; text-decoration:none; font-weight:600; }
-.btn-primary { background:#2563eb; color:#fff; border-color:#2563eb; }
-.btn-secondary { background:#3a3a3c; color:#fff; border:1px solid #4a4a4e; }
-`;
 
 
 

@@ -1,0 +1,87 @@
+.mesa-reg-container {
+  background-color: #2c2c2e;
+  border: 1px solid #3a3a3c;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.mesa-reg-title {
+  margin: 0 0 16px 0;
+  color: #fff;
+  font-size: 1.5rem;
+}
+
+.mesa-reg-msg {
+  margin-bottom: 16px;
+  color: #facc15;
+}
+
+.mesa-reg-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.mesa-reg-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mesa-reg-row label {
+  font-weight: 600;
+  color: #d1d5db;
+}
+
+.mesa-reg-row input,
+.mesa-reg-row select {
+  background-color: #3a3a3c;
+  border: 1px solid #4a4a4e;
+  border-radius: 8px;
+  padding: 10px;
+  color: #fff;
+  outline: none;
+}
+
+.mesa-reg-row input:focus,
+.mesa-reg-row select:focus {
+  border-color: #facc15;
+}
+
+.mesa-reg-error {
+  font-size: 0.85rem;
+  color: #fca5a5;
+}
+
+.mesa-reg-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.mesa-reg-btn {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+}
+
+.mesa-reg-btn-primary {
+  background-color: #2563eb;
+  color: #fff;
+}
+
+.mesa-reg-btn-primary:hover {
+  background-color: #1d4ed8;
+}
+
+.mesa-reg-btn-secondary {
+  background-color: #3a3a3c;
+  color: #fff;
+}
+
+.mesa-reg-btn-secondary:hover {
+  background-color: #4b4b4d;
+}

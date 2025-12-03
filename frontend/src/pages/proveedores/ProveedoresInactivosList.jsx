@@ -4,7 +4,12 @@ import { api } from "../../api/axios";
 import DashboardLayout from "../../components/layout/DashboardLayout";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import AlertDialog from "../../components/AlertDialog";
-import { FaEdit, FaLockOpen, FaSearch, FaArrowLeft } from "react-icons/fa";
+
+import ProveedoresInactivosHeader from "../../components/proveedores/ProveedoresInactivosHeader";
+import ProveedoresInactivosSearch from "../../components/proveedores/ProveedoresInactivosSearch";
+import ProveedoresInactivosTable from "../../components/proveedores/ProveedoresInactivosTable";
+
+import "./ProveedoresInactivosList.css";
 
 export default function ProveedoresInactivosList() {
   const [rows, setRows] = useState([]);
@@ -12,7 +17,9 @@ export default function ProveedoresInactivosList() {
   const [alert, setAlert] = useState({ isOpen: false, message: "" });
   const [search, setSearch] = useState("");
 
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => {
+    cargar();
+  }, []);
 
   const cargar = () => {
     api.get("/api/proveedores/").then((res) => {
@@ -27,7 +34,7 @@ export default function ProveedoresInactivosList() {
     try {
       await api.put(`/api/proveedores/${dialog.item.id_proveedor}/`, {
         ...dialog.item,
-        id_estado_prov: 1, // Activar
+        id_estado_prov: 1,
       });
       setAlert({ isOpen: true, message: `Proveedor activado correctamente.` });
       cargar();
@@ -43,65 +50,25 @@ export default function ProveedoresInactivosList() {
     setDialog({ isOpen: true, item: prov, action: "activar" });
   };
 
-  const estadoChip = () => <span className="status-chip inactive">Inactivo</span>;
-
   const norm = (t) => (t ? t.toString().toLowerCase().replace(/\s+/g, "") : "");
-  const filteredRows = rows.filter((r) =>
-    norm(r.prov_nombre).includes(norm(search))
-    || norm(r.prov_correo).includes(norm(search))
-    || norm(r.prov_tel).includes(norm(search))
+  const filteredRows = rows.filter(
+    (r) =>
+      norm(r.prov_nombre).includes(norm(search)) ||
+      norm(r.prov_correo).includes(norm(search)) ||
+      norm(r.prov_tel).includes(norm(search))
   );
 
   return (
     <DashboardLayout>
-      <div className="page-header">
-        <h2>Proveedores Inactivos</h2>
-        <Link to="/proveedores" className="btn btn-secondary">
-          <FaArrowLeft /> Volver a activos
-        </Link>
-      </div>
+      <div className="prov-inactivos-container">
+        <ProveedoresInactivosHeader />
 
-      <div className="search-bar">
-        <FaSearch className="search-icon" />
-        <input
-          type="text"
-          placeholder="Buscar proveedor inactivo..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+        <ProveedoresInactivosSearch search={search} setSearch={setSearch} />
+
+        <ProveedoresInactivosTable
+          filteredRows={filteredRows}
+          handleActivate={handleActivate}
         />
-      </div>
-
-      <div className="table-container">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>ID</th><th>Nombre</th><th>Teléfono</th><th>Correo</th><th>Dirección</th><th>Estado</th><th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRows.map((r) => (
-              <tr key={r.id_proveedor}>
-                <td>{r.id_proveedor}</td>
-                <td>{r.prov_nombre}</td>
-                <td>{r.prov_tel || "-"}</td>
-                <td>{r.prov_correo || "-"}</td>
-                <td>{r.prov_direccion || "-"}</td>
-                <td>{estadoChip()}</td>
-                <td className="actions-cell">
-                  <Link to={`/proveedores/editar/${r.id_proveedor}`} className="btn btn-secondary">
-                    <FaEdit /> Editar
-                  </Link>
-                  <button className="btn btn-success" onClick={() => handleActivate(r)}>
-                    <FaLockOpen /> Activar
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {filteredRows.length === 0 && (
-              <tr><td colSpan="7" className="empty-row">No hay proveedores inactivos o no coinciden con la búsqueda.</td></tr>
-            )}
-          </tbody>
-        </table>
       </div>
 
       <ConfirmDialog
@@ -111,44 +78,14 @@ export default function ProveedoresInactivosList() {
         onConfirm={onConfirmToggleEstado}
         onCancel={() => setDialog({ isOpen: false, item: null, action: null })}
       />
+
       <AlertDialog
         open={alert.isOpen}
         title="Notificación"
         message={alert.message}
         onClose={() => setAlert({ isOpen: false, message: "" })}
       />
-
-      <style>{`
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-        .page-header h2 { margin: 0; font-size: 1.75rem; color: #fff; }
-        .search-bar {
-          display: flex; align-items: center; background-color: #3a3a3c;
-          border: 1px solid #4a4a4e; border-radius: 8px; padding: 6px 10px;
-          margin-bottom: 16px; width: 100%; max-width: 480px;
-        }
-        .search-icon { color: #facc15; margin-right: 8px; }
-        .search-bar input {
-          flex: 1; background: transparent; border: none; outline: none; color: #fff; font-size: 1rem;
-        }
-
-        .table-container { background-color: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 12px; overflow: hidden; }
-        .table { width: 100%; border-collapse: collapse; }
-        .table th, .table td { padding: 14px 18px; text-align: left; border-bottom: 1px solid #3a3a3c; }
-        .table th { background-color: #3a3a3c; color: #d1d5db; font-weight: 600; font-size: 0.875rem; text-transform: uppercase; }
-        .table td { color: #eaeaea; }
-        .table tbody tr:last-child td { border-bottom: none; }
-        .actions-cell { display: flex; gap: 8px; }
-        .empty-row { text-align: center; color: #a0a0a0; padding: 32px; }
-
-        .status-chip { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
-        .status-chip.inactive { background: rgba(248, 113, 113, 0.1); color: #f87171; border: 1px solid rgba(248, 113, 113, 0.2); }
-
-        .btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; text-decoration: none; transition: background-color 0.2s ease; }
-        .btn-secondary { background-color: #3a3a3c; color: #eaeaea; }
-        .btn-secondary:hover { background-color: #4a4a4e; }
-        .btn-success { background-color: rgba(34, 197, 94, 0.2); color: #22c55e; }
-        .btn-success:hover { background-color: rgba(34, 197, 94, 0.3); }
-      `}</style>
     </DashboardLayout>
   );
 }
+

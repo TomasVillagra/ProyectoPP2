@@ -1,0 +1,249 @@
+.prov-ins-container {
+  padding: 12px;
+}
+
+/* Header */
+.prov-ins-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+
+.prov-ins-header h2 {
+  margin: 0;
+  color: #fff;
+}
+
+.prov-ins-sub {
+  margin: 4px 0 0;
+  color: #d1d5db;
+}
+
+.prov-ins-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Mensaje */
+.prov-ins-notice {
+  background: #1f2937;
+  border: 1px solid #374151;
+  color: #e5e7eb;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+/* Tarjeta */
+.prov-ins-card {
+  background: #2c2c2e;
+  border: 1px solid #3a3a3c;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.prov-ins-muted {
+  color: #d1d5db;
+  display: inline-block;
+  margin-top: 6px;
+}
+
+/* COMBOBOX */
+.prov-ins-combo {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.prov-ins-combo-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prov-ins-combo-input {
+  flex: 1;
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+  border-radius: 8px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.prov-ins-price-input {
+  width: 180px;
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+  border-radius: 8px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.prov-ins-search-count {
+  font-size: 0.875rem;
+  color: #d1d5db;
+  white-space: nowrap;
+}
+
+.prov-ins-combo-list {
+  position: absolute;
+  z-index: 30;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 6px;
+  background: #2c2c2e;
+  border: 1px solid #3a3a3c;
+  border-radius: 10px;
+  max-height: 260px;
+  overflow: auto;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+.prov-ins-combo-option {
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.prov-ins-combo-option:hover,
+.prov-ins-combo-option.is-active {
+  background: #3a3a3c;
+}
+
+.prov-ins-opt-title {
+  color: #fff;
+  font-weight: 600;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.prov-ins-opt-unit {
+  color: #d1d5db;
+  font-weight: 500;
+}
+
+.prov-ins-opt-meta {
+  color: #c7c7c7;
+  font-size: 0.85rem;
+  display: flex;
+  gap: 10px;
+}
+
+.prov-ins-combo-empty {
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #d1d5db;
+}
+
+/* Botones */
+.prov-ins-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.2s ease;
+  font-size: 0.9rem;
+}
+
+.prov-ins-btn-primary {
+  background: #facc15;
+  color: #111827;
+}
+
+.prov-ins-btn-primary:hover {
+  background: #eab308;
+}
+
+.prov-ins-btn-secondary {
+  background: #3a3a3c;
+  color: #eaeaea;
+}
+
+.prov-ins-btn-secondary:hover {
+  background: #4a4a4e;
+}
+
+.prov-ins-btn-danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.prov-ins-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.prov-ins-btn-small {
+  padding: 6px 10px;
+  font-size: 0.9rem;
+}
+
+.prov-ins-btn-xs {
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
+/* Tabla */
+.prov-ins-table-container {
+  background: #2c2c2e;
+  border: 1px solid #3a3a3c;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.prov-ins-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.prov-ins-table th,
+.prov-ins-table td {
+  padding: 14px 18px;
+  text-align: left;
+  border-bottom: 1px solid #3a3a3c;
+  color: #eaeaea;
+}
+
+.prov-ins-table th {
+  background: #3a3a3c;
+  color: #d1d5db;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+}
+
+.prov-ins-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.prov-ins-actions-cell {
+  display: flex;
+  gap: 8px;
+}
+
+.prov-ins-empty-row {
+  text-align: center;
+  color: #a0a0a0;
+  padding: 32px;
+}
+
+/* Edición en línea precio */
+.prov-ins-edit-price-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

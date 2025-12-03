@@ -1,0 +1,97 @@
+/* Todo scopeado dentro de .compras-list-scope */
+
+.compras-list-scope .table-wrap {
+  overflow: auto;
+  margin-top: 8px;
+}
+
+.compras-list-scope .table-dark {
+  width: 100%;
+  border-collapse: collapse;
+  background: #121212;
+  color: #eaeaea;
+}
+
+.compras-list-scope .table-dark th,
+.compras-list-scope .table-dark td {
+  border: 1px solid #232323;
+  padding: 10px;
+  vertical-align: top;
+}
+
+/* Filtros */
+.compras-list-scope .filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.compras-list-scope .filters .ctl {
+  background: #0f0f0f;
+  color: #fff;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.compras-list-scope .filters .spacer {
+  flex: 1;
+}
+
+/* Botones */
+.compras-list-scope .btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.compras-list-scope .btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.compras-list-scope .btn-secondary {
+  background: #3a3a3c;
+  color: #fff;
+  border: 1px solid #4a4a4e;
+}
+
+.compras-list-scope .btn-receive {
+  background: #16a34a;
+  color: #fff;
+}
+
+.compras-list-scope .btn-receive:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.compras-list-scope .btn-cancel {
+  background: #dc2626;
+  color: #fff;
+}
+
+.compras-list-scope .btn-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.compras-list-scope .btn-pay {
+  background: #fbbf24;
+  color: #111827;
+}
+
+/* Paginación */
+.compras-list-scope .paginate {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
